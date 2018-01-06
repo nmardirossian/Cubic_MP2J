@@ -13,9 +13,10 @@ from pyscf.pbc import tools as pbctools
 from pyscf import lib as pylib
 import pyscf.pbc.tools.pyscf_ase as pyscf_ase
 
-def get_cell(lc_bohr,atom,unit_cell,basis,gs,pseudo):
+pyfftw.interfaces.cache.enable()
 
-	#TODO Make it work with supercell
+def get_cell(lc_bohr,atom,unit_cell,basis,gs,pseudo,super):
+
 	cell=pbcgto.Cell()
 	boxlen=lc_bohr
 	ase_atom=ase.build.bulk(atom, unit_cell, a=boxlen)
@@ -32,6 +33,8 @@ def get_cell(lc_bohr,atom,unit_cell,basis,gs,pseudo):
 	cell.unit='B'
 	cell.verbose=10
 	cell.build()
+	if super!=[]:
+		cell=pbctools.super_cell(cell, super)
 
 	return cell
 
@@ -76,6 +79,39 @@ def get_moR(cell,mo,nocc):
 
 	return (moRocc,moRvirt,coulGsmall)
 
+def get_batch_info(mem_avail,ngs):
+
+	#input is available memory in GB
+
+	bsize=int(numpy.floor(numpy.amin(numpy.array([ngs,mem_avail*(10**9)*2/(8*ngs)]))))
+	bnum=int(numpy.ceil(ngs/float(bsize)))
+
+	return (bsize,bnum)
+
+def get_dim_from_ngs(ngs):
+
+	dim=numpy.full(3,int(numpy.cbrt(ngs)))
+
+	return dim
+
+def get_small_dim_from_ngs(ngs):
+
+	dim=get_dim_from_ngs(ngs)
+	dim[2]=int(numpy.floor(dim[2]/2.0))+1
+
+	return dim
+
+def compute_fft(func,coul):
+
+	dim=get_dim_from_ngs(len(func))
+	smalldim=get_small_dim_from_ngs(len(func))
+	
+	func=pyfftw.interfaces.numpy_fft.rfftn(func.reshape(dim),dim,planner_effort='FFTW_MEASURE')
+	func*=coul.reshape(smalldim)
+	func=pyfftw.interfaces.numpy_fft.irfftn(func,dim,planner_effort='FFTW_MEASURE').flatten()
+
+	return func
+
 def get_LT_data():
 
 	tauarray=[-0.0089206000, -0.0611884000, -0.2313584000, -0.7165678000, -1.9685146000, -4.9561668000, -11.6625886000]
@@ -84,7 +120,7 @@ def get_LT_data():
 
 	return (tauarray,weightarray,NLapPoints)
 
-def get_MP2J(moRocc,moRvirt,coulGsmall):
+def get_MP2J_quadmem_cython(moRocc,moRvirt,coulGsmall):
 
 	(tauarray,weightarray,NLapPoints)=get_LT_data()
 
@@ -127,49 +163,32 @@ def get_MP2J(moRocc,moRvirt,coulGsmall):
 
 	return EMP2J
 
-pyfftw.interfaces.cache.enable()
-def nm_fft(inp,ngs):
-	griddim=numpy.full(3,int(numpy.cbrt(ngs)))
+def get_MP2J_quadmem(moRocc,moRvirt,coulGsmall):
 
-	return pyfftw.interfaces.numpy_fft.rfftn(inp.reshape(griddim),griddim,planner_effort='FFTW_MEASURE').flatten()
+	(tauarray,weightarray,NLapPoints)=get_LT_data()
 
-def nm_ifft(inp,ngs):
-	griddim=numpy.full(3,int(numpy.cbrt(ngs)))
+	if (numpy.shape(moRocc)[1]==numpy.shape(moRvirt)[1]):
+		ngs=numpy.shape(moRocc)[1]
+		dim=int(numpy.cbrt(ngs))
 
-	return pyfftw.interfaces.numpy_fft.irfftn(inp.reshape(griddim),griddim,planner_effort='FFTW_MEASURE').flatten()
+	Jtime=time.time()
+	EMP2J=0.0 #accumulate energy over all Laplace points
+	for i in range(NLapPoints):
+		Jint=0.0 #acculumlate energy over a single Laplace point
+		moRoccW=moRocc*numpy.exp(-orben[:nocc]*tauarray[i]/2.) #phi_occ*exp(-eps*tau/2); [nocc x ngs]
+		moRvirtW=moRvirt*numpy.exp(orben[nocc:]*tauarray[i]/2.) #phi_virt*exp(eps*tau/2); [nvirt x ngs]
+		g_o=pylib.dot(moRoccW.T,moRoccW) #[ngs x ngs]
+		g_v=pylib.dot(moRvirtW.T,moRvirtW) #[ngs x ngs]
+		f=g_o*g_v #[ngs x ngs]
+		F=numpy.zeros((ngs,ngs),dtype='complex128') #[ngs x ngs]
+		for j in range(ngs):
+			F[j]=compute_fft(f[j,:],coulGsmall)
+		Jint+=numpy.sum(F.T*F)
+		EMP2J-=2*weightarray[i]*Jint*(cell.vol/ngs)**2
+		print EMP2J.real
+	print "Took this long for J: ", time.time()-Jtime
 
-def get_batch_info(mem_avail,ngs):
-
-	#input is available memory in GB
-
-	bsize=int(numpy.floor(numpy.amin(numpy.array([ngs,mem_avail*(10**9)*2/(8*ngs)]))))
-	bnum=int(numpy.ceil(ngs/float(bsize)))
-
-	return (bsize,bnum)
-
-def get_dim_from_ngs(ngs):
-
-	dim=numpy.full(3,int(numpy.cbrt(ngs)))
-
-	return dim
-
-def get_small_dim_from_ngs(ngs):
-
-	dim=get_dim_from_ngs(ngs)
-	dim[2]=int(numpy.floor(dim[2]/2.0))+1
-
-	return dim
-
-def compute_fft(func,coul):
-	dim=get_dim_from_ngs(len(func))
-	smalldim=get_small_dim_from_ngs(len(func))
-	
-	tmp=pyfftw.interfaces.numpy_fft.rfftn(func.reshape(dim),dim,planner_effort='FFTW_MEASURE')
-	tmp*=coul.reshape(smalldim)
-	tmp=pyfftw.interfaces.numpy_fft.irfftn(tmp,dim,planner_effort='FFTW_MEASURE').flatten()
-
-	return tmp
-	
+	return EMP2J.real
 
 def get_MP2J_linmem(moRocc,moRvirt,coulGsmall,mem_avail):
 
@@ -219,13 +238,16 @@ def get_MP2J_linmem(moRocc,moRvirt,coulGsmall,mem_avail):
 
 	return EMP2J.real
 
-cell=get_cell(6.74,'C','diamond','gth-szv',6,'gth-pade')
+#TODO def get_MP2J_linmem_cython(moRocc,moRvirt,coulGsmall):
+
+cell=get_cell(6.74,'C','diamond','gth-szv',6,'gth-pade',[])
 (mo,orben,nocc)=get_orbitals(cell)
 (moRocc,moRvirt,coulGsmall)=get_moR(cell,mo,nocc)
-EMP2J=get_MP2J(moRocc,moRvirt,coulGsmall)
+
+EMP2J_quadmem_cython=get_MP2J_quadmem_cython(moRocc,moRvirt,coulGsmall)
+EMP2J_quadmem=get_MP2J_quadmem(moRocc,moRvirt,coulGsmall)
 EMP2J_linmem=get_MP2J_linmem(moRocc,moRvirt,coulGsmall,4.0/500.0)
 
-if (EMP2J==EMP2J_linmem):
-	print "O(N^2) and O(N) mem versions agree!"
-else:
-	print "Difference is: ", EMP2J-EMP2J_linmem
+print "EMP2J_quadmem_cython: ", EMP2J_quadmem_cython
+print "EMP2J_quadmem: ", EMP2J_quadmem 
+print "EMP2J_linmem: ", EMP2J_linmem
