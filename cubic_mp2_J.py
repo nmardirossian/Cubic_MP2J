@@ -120,6 +120,38 @@ def get_LT_data():
 
 	return (tauarray,weightarray,NLapPoints)
 
+def get_MP2J_quadmem(moRocc,moRvirt,coulGsmall):
+
+	(tauarray,weightarray,NLapPoints)=get_LT_data()
+
+	if (numpy.shape(moRocc)[1]==numpy.shape(moRvirt)[1]):
+		ngs=numpy.shape(moRocc)[1]
+		dim=int(numpy.cbrt(ngs))
+
+	Jtime=time.time()
+	EMP2J=0.0
+	for i in range(NLapPoints):
+		moRoccW=moRocc*numpy.exp(-orben[:nocc]*tauarray[i]/2.)
+		moRvirtW=moRvirt*numpy.exp(orben[nocc:]*tauarray[i]/2.)
+		g_o=pylib.dot(moRoccW.T,moRoccW)
+		g_v=pylib.dot(moRvirtW.T,moRvirtW)
+		f=g_o*g_v
+		g_o=g_v=None
+		moRoccW=moRvirtW=None
+		F=numpy.zeros((ngs,ngs),dtype='complex128')
+		for j in range(ngs):
+			F[j]=compute_fft(f[j,:],coulGsmall)
+		f=None
+		Jint=numpy.sum(F.T*F)
+		F=None
+		EMP2J-=2.*weightarray[i]*Jint*(cell.vol/ngs)**2.
+		print EMP2J.real
+	print "Took this long for J: ", time.time()-Jtime
+	EMP2J=EMP2J.real
+	print "EMP2J: ", EMP2J
+
+	return EMP2J
+
 def get_MP2J_quadmem_cython(moRocc,moRvirt,coulGsmall):
 
 	(tauarray,weightarray,NLapPoints)=get_LT_data()
@@ -131,64 +163,25 @@ def get_MP2J_quadmem_cython(moRocc,moRvirt,coulGsmall):
 	Jtime=time.time()
 	EMP2J=0.0
 	for i in range(NLapPoints):
-
 		moRoccW=moRocc*numpy.exp(-orben[:nocc]*tauarray[i]/2.)
 		moRvirtW=moRvirt*numpy.exp(orben[nocc:]*tauarray[i]/2.)
-
-		gfunc=pylib.dot(moRoccW.T,moRoccW)
-		gbarfunc=pylib.dot(moRvirtW.T,moRvirtW)
-		ffunc=gfunc*gbarfunc
-
-		gfunc=gbarfunc=None
+		g_o=pylib.dot(moRoccW.T,moRoccW)
+		g_v=pylib.dot(moRvirtW.T,moRvirtW)
+		f=g_o*g_v
+		g_o=g_v=None
 		moRoccW=moRvirtW=None
-
-		f2func=numpy.zeros((ngs,ngs),dtype='float64')
-
-		timeit=time.time()
-		fft_cython.getJ(dim,ngs,ffunc,f2func,coulGsmall)
-		print "Cython J call took: ", time.time()-timeit
-
-		ffunc=None
-		f2func=f2func*f2func.T
-		Jint=numpy.sum(f2func)
+		F=numpy.zeros((ngs,ngs),dtype='float64')
+		fft_cython.getJ(dim,ngs,f,F,coulGsmall)
+		f=None
+		Jint=numpy.sum(F.T*F)
+		F=None
 		EMP2J-=2.*weightarray[i]*Jint*(cell.vol/ngs)**2.
-
-		f2func=None
-
 		print EMP2J.real
-
 	print "Took this long for J: ", time.time()-Jtime
 	EMP2J=EMP2J.real
 	print "EMP2J: ", EMP2J
 
 	return EMP2J
-
-def get_MP2J_quadmem(moRocc,moRvirt,coulGsmall):
-
-	(tauarray,weightarray,NLapPoints)=get_LT_data()
-
-	if (numpy.shape(moRocc)[1]==numpy.shape(moRvirt)[1]):
-		ngs=numpy.shape(moRocc)[1]
-		dim=int(numpy.cbrt(ngs))
-
-	Jtime=time.time()
-	EMP2J=0.0 #accumulate energy over all Laplace points
-	for i in range(NLapPoints):
-		Jint=0.0 #acculumlate energy over a single Laplace point
-		moRoccW=moRocc*numpy.exp(-orben[:nocc]*tauarray[i]/2.) #phi_occ*exp(-eps*tau/2); [nocc x ngs]
-		moRvirtW=moRvirt*numpy.exp(orben[nocc:]*tauarray[i]/2.) #phi_virt*exp(eps*tau/2); [nvirt x ngs]
-		g_o=pylib.dot(moRoccW.T,moRoccW) #[ngs x ngs]
-		g_v=pylib.dot(moRvirtW.T,moRvirtW) #[ngs x ngs]
-		f=g_o*g_v #[ngs x ngs]
-		F=numpy.zeros((ngs,ngs),dtype='complex128') #[ngs x ngs]
-		for j in range(ngs):
-			F[j]=compute_fft(f[j,:],coulGsmall)
-		Jint+=numpy.sum(F.T*F)
-		EMP2J-=2*weightarray[i]*Jint*(cell.vol/ngs)**2
-		print EMP2J.real
-	print "Took this long for J: ", time.time()-Jtime
-
-	return EMP2J.real
 
 def get_MP2J_linmem(moRocc,moRvirt,coulGsmall,mem_avail):
 
@@ -204,17 +197,20 @@ def get_MP2J_linmem(moRocc,moRvirt,coulGsmall,mem_avail):
 	Jtime=time.time()
 	EMP2J=0.0 #accumulate energy over all Laplace points
 	for i in range(NLapPoints):
-		Jint=0.0 #acculumlate energy over a single Laplace point
+		Jint=0.0 #accumulate energy over a single Laplace point
 		moRoccW=moRocc*numpy.exp(-orben[:nocc]*tauarray[i]/2.) #phi_occ*exp(-eps*tau/2); [nocc x ngs]
 		moRvirtW=moRvirt*numpy.exp(orben[nocc:]*tauarray[i]/2.) #phi_virt*exp(eps*tau/2); [nvirt x ngs]
 		for b1 in range(bnum):
 			g_o=pylib.dot(moRoccW.T[b1*bsize:(b1+1)*bsize],moRoccW) #[cur_bsize x ngs]
 			g_v=pylib.dot(moRvirtW.T[b1*bsize:(b1+1)*bsize],moRvirtW) #[cur_bsize x ngs]
 			f=g_o*g_v #[cur_bsize x ngs]
-			cur_bsize=numpy.shape(f)[0] #size of the current batch (always bsize except maybe on last batch)
+			g_o=g_v=None
+			#moRoccW=moRvirtW=None
+			cur_bsize=numpy.shape(f)[0] #size of the current batch (always bsize except possibly on last batch)
 			F=numpy.zeros((cur_bsize,ngs),dtype='complex128') #[cur_bsize x ngs]
 			for j in range(cur_bsize):
 				F[j]=compute_fft(f[j,:],coulGsmall)
+			f=None
 			if bnum>1:
 				F_T=numpy.zeros((ngs,cur_bsize),dtype='complex128')
 				for b2 in range(bnum):
@@ -222,21 +218,30 @@ def get_MP2J_linmem(moRocc,moRvirt,coulGsmall,mem_avail):
 						g_o_in=pylib.dot(moRoccW.T[b2*bsize:(b2+1)*bsize],moRoccW)
 						g_v_in=pylib.dot(moRvirtW.T[b2*bsize:(b2+1)*bsize],moRvirtW)
 						f_in=g_o_in*g_v_in
+						g_o_in=g_v_in=None
+						#moRoccW=moRvirtW=None
 						cur_bsize_in=numpy.shape(f_in)[0]
 						F_in=numpy.zeros((cur_bsize_in,ngs),dtype='complex128')
-						for j in range(cur_bsize_in):
-							F_in[j]=compute_fft(f_in[j,:],coulGsmall)
+						for k in range(cur_bsize_in):
+							F_in[k]=compute_fft(f_in[k,:],coulGsmall)
+						f_in=None
 						F_T[b2*bsize:(b2+1)*bsize]=F_in[:,b1*bsize:(b1+1)*bsize]
+						F_in=None
 					else:
 						F_T[b2*bsize:(b2+1)*bsize]=F[:,b1*bsize:(b1+1)*bsize]
 				Jint+=numpy.sum(F_T.T*F)
+				F=F_T=None
 			else:
 				Jint+=numpy.sum(F.T*F)
-		EMP2J-=2*weightarray[i]*Jint*(cell.vol/ngs)**2
+				F=F_T=None
+		moRoccW=moRvirtW=None
+		EMP2J-=2.*weightarray[i]*Jint*(cell.vol/ngs)**2.
 		print EMP2J.real
 	print "Took this long for J: ", time.time()-Jtime
+	EMP2J=EMP2J.real
+	print "EMP2J: ", EMP2J
 
-	return EMP2J.real
+	return EMP2J
 
 #TODO def get_MP2J_linmem_cython(moRocc,moRvirt,coulGsmall):
 
