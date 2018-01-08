@@ -8,7 +8,7 @@
 #define IMAG 1
 //#define TIMING 1
 
-void getJ_c(int dim, long int ngs, double* ffunc, double* f2func, double* coulGsmall){
+void getJ_c(long int dim, long int batch, double* ffunc, double* f2func, double* coulGsmall){
 
     long int j, l;
     double *signalfft;
@@ -24,6 +24,7 @@ void getJ_c(int dim, long int ngs, double* ffunc, double* f2func, double* coulGs
 #endif
 
     long int ngssmall=dim*dim*(floor(dim/2.0)+1);
+	long int ngs=dim*dim*dim;
 
     signalfft=(double*) fftw_malloc(sizeof(double)*ngs);
     resultfft=(fftw_complex*) fftw_malloc(sizeof(fftw_complex)*ngssmall);
@@ -38,7 +39,7 @@ void getJ_c(int dim, long int ngs, double* ffunc, double* f2func, double* coulGs
                                               signalfft,
                                               FFTW_MEASURE);
 
-    for (j=0; j<ngs; ++j){
+    for (j=0; j<batch; ++j){
 
             // ffunc[j]
 #ifdef TIMING
