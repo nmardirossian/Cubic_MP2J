@@ -3,13 +3,13 @@ cimport cython
 import numpy
 cimport numpy
 
-cdef extern void getJ_c(long int dim, long int batch, double* ffunc, double* f2func, double* coulGsmall)
+cdef extern void getJ_c(long int dim, long int batch, double* f, double* F, double* coulGsmall)
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
 
-def getJ(long int dim, long int batch, double[:,:] ffunc, double[:,:] f2func, double[:] coulGsmall):
+def getJ(long int dim, long int batch, double[:,:] f, double[:,:] F, double[:] coulGsmall):
 
-    getJ_c(dim, batch, &ffunc[0,0], &f2func[0,0], &coulGsmall[0])
+    getJ_c(dim, batch, &f[0,0], &F[0,0], &coulGsmall[0])
 
     return None

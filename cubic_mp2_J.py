@@ -133,14 +133,14 @@ def get_MP2J_quadmem(moRocc,moRvirt,coulGsmall,opt="Cython"):
 		moRvirtW=moRvirt*numpy.exp(orben[nocc:]*tauarray[i]/2.) #[nvirt x ngs]
 		g_o=pylib.dot(moRoccW.T,moRoccW) #[ngs x ngs]
 		g_v=pylib.dot(moRvirtW.T,moRvirtW) #[ngs x ngs]
+		moRoccW=moRvirtW=None
 		f=g_o*g_v #[ngs x ngs]
 		g_o=g_v=None
-		moRoccW=moRvirtW=None
 		if opt=="Cython":
 			F=numpy.zeros((ngs,ngs),dtype='float64')
 			fft_cython.getJ(dim,ngs,f,F,coulGsmall)
 		else:
-			F=numpy.zeros((ngs,ngs),dtype='complex128') #[ngs x ngs]
+			F=numpy.zeros((ngs,ngs),dtype='float64') #[ngs x ngs]
 			for j in range(ngs):
 				F[j]=compute_fft(f[j,:],coulGsmall)
 		f=None
@@ -176,31 +176,29 @@ def get_MP2J_linmem(moRocc,moRvirt,coulGsmall,mem_avail,opt="Cython"):
 			g_v=pylib.dot(moRvirtW.T[b1*bsize:(b1+1)*bsize],moRvirtW) #[cur_bsize x ngs]
 			f=g_o*g_v #[cur_bsize x ngs]
 			g_o=g_v=None
-			#moRoccW=moRvirtW=None
 			cur_bsize=numpy.shape(f)[0]
 			if opt=="Cython":
 				F=numpy.zeros((cur_bsize,ngs),dtype='float64') #[cur_bsize x ngs]
 				fft_cython.getJ(dim,cur_bsize,f,F,coulGsmall)
 			else:
-				F=numpy.zeros((cur_bsize,ngs),dtype='complex128') #[cur_bsize x ngs]
+				F=numpy.zeros((cur_bsize,ngs),dtype='float64') #[cur_bsize x ngs]
 				for j in range(cur_bsize):
 					F[j]=compute_fft(f[j,:],coulGsmall)
 			f=None
 			if bnum>1:
-				F_T=numpy.zeros((ngs,cur_bsize),dtype='complex128')
+				F_T=numpy.zeros((ngs,cur_bsize),dtype='float64')
 				for b2 in range(bnum):
 					if b2!=b1:
-						g_o_in=pylib.dot(moRoccW.T[b2*bsize:(b2+1)*bsize],moRoccW)
-						g_v_in=pylib.dot(moRvirtW.T[b2*bsize:(b2+1)*bsize],moRvirtW)
-						f_in=g_o_in*g_v_in
+						g_o_in=pylib.dot(moRoccW.T[b2*bsize:(b2+1)*bsize],moRoccW) #[cur_bsize x ngs]
+						g_v_in=pylib.dot(moRvirtW.T[b2*bsize:(b2+1)*bsize],moRvirtW) #[cur_bsize x ngs]
+						f_in=g_o_in*g_v_in #[cur_bsize x ngs]
 						g_o_in=g_v_in=None
-						#moRoccW=moRvirtW=None
 						cur_bsize_in=numpy.shape(f_in)[0]
 						if opt=="Cython":
-							F_in=numpy.zeros((cur_bsize_in,ngs),dtype='float64')
+							F_in=numpy.zeros((cur_bsize_in,ngs),dtype='float64') #[cur_bsize x ngs]
 							fft_cython.getJ(dim,cur_bsize_in,f_in,F_in,coulGsmall)
 						else:
-							F_in=numpy.zeros((cur_bsize_in,ngs),dtype='complex128')
+							F_in=numpy.zeros((cur_bsize_in,ngs),dtype='float64') #[cur_bsize x ngs]
 							for k in range(cur_bsize_in):
 								F_in[k]=compute_fft(f_in[k,:],coulGsmall)
 						f_in=None

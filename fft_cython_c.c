@@ -8,7 +8,7 @@
 #define IMAG 1
 //#define TIMING 1
 
-void getJ_c(long int dim, long int batch, double* ffunc, double* f2func, double* coulGsmall){
+void getJ_c(long int dim, long int batch, double* f, double* F, double* coulGsmall){
 
     long int j, l;
     double *signalfft;
@@ -41,19 +41,19 @@ void getJ_c(long int dim, long int batch, double* ffunc, double* f2func, double*
 
     for (j=0; j<batch; ++j){
 
-            // ffunc[j]
+            // f[j]
 #ifdef TIMING
             initsec=clock();
 #endif
             for (l=0; l<ngs; ++l){
-                signalfft[l]=ffunc[j*ngs+l];
+                signalfft[l]=f[j*ngs+l];
             }
 #ifdef TIMING
             finalsec=clock();
             initfilltime+=(double)(finalsec-initsec)/CLOCKS_PER_SEC;
 #endif
 
-            // nm_fft(ffunc[j])
+            // nm_fft(f[j])
 #ifdef TIMING
             initsec=clock();
 #endif
@@ -63,7 +63,7 @@ void getJ_c(long int dim, long int batch, double* ffunc, double* f2func, double*
             ffttime+=(double)(finalsec-initsec)/CLOCKS_PER_SEC;
 #endif
 
-            // nm_fft(ffunc[:,j])*coulG
+            // nm_fft(f[:,j])*coulG
 #ifdef TIMING
             initsec=clock();
 #endif
@@ -76,7 +76,7 @@ void getJ_c(long int dim, long int batch, double* ffunc, double* f2func, double*
             coulGsmalltime+=(double)(finalsec-initsec)/CLOCKS_PER_SEC;
 #endif
 
-            // nm_ifft(nm_fft(ffunc[:,j])*coulG)
+            // nm_ifft(nm_fft(f[:,j])*coulG)
 #ifdef TIMING
             initsec=clock();
 #endif
@@ -86,12 +86,12 @@ void getJ_c(long int dim, long int batch, double* ffunc, double* f2func, double*
             iffttime+=(double)(finalsec-initsec)/CLOCKS_PER_SEC;
 #endif
 
-            // f2func[j]
+            // F[j]
 #ifdef TIMING
             initsec=clock();
 #endif
             for (l=0; l<ngs; ++l){
-                f2func[j*ngs+l]=signalfft[l]/(double)ngs;
+                F[j*ngs+l]=signalfft[l]/(double)ngs;
             }
 #ifdef TIMING
             finalsec=clock();
