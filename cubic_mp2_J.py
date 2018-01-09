@@ -79,9 +79,11 @@ def get_moR(cell,mo,nocc):
 
 	return (moRocc,moRvirt,coulGsmall)
 
-def get_batch_info(mem_avail,ngs):
+def get_batch_info(mem_avail,ngs,nocc,nvirt):
 
-	bsize=int(numpy.floor(numpy.amin(numpy.array([ngs,mem_avail*(10**9)*2/(8*ngs)]))))
+	max_mat=5 #maximum number of [bsize x ngs] matrices that must be stored
+	bsize=(mem_avail*(10**9)/8-ngs*(nocc+nvirt))/(max_mat*ngs)
+	bsize=int(numpy.floor(numpy.amin(numpy.array([ngs,bsize]))))
 	bnum=int(numpy.ceil(ngs/float(bsize)))
 
 	return (bsize,bnum)
@@ -162,7 +164,7 @@ def get_MP2J_linmem(moRocc,moRvirt,coulGsmall,mem_avail,opt="Cython"):
 		ngs=numpy.shape(moRocc)[1]
 		dim=int(numpy.cbrt(ngs))
 
-	(bsize,bnum)=get_batch_info(mem_avail,ngs)
+	(bsize,bnum)=get_batch_info(mem_avail,ngs,numpy.shape(moRocc)[0],numpy.shape(moRvirt)[0],)
 	print "Splitting the task into ", bnum, " batches of size ", bsize
 
 	Jtime=time.time()
@@ -220,14 +222,14 @@ def get_MP2J_linmem(moRocc,moRvirt,coulGsmall,mem_avail,opt="Cython"):
 
 	return EMP2J
 
-cell=get_cell(6.74,'C','diamond','gth-szv',6,'gth-pade',[])
+cell=get_cell(6.74,'C','diamond','gth-szv',10,'gth-pade',[])
 (mo,orben,nocc)=get_orbitals(cell)
 (moRocc,moRvirt,coulGsmall)=get_moR(cell,mo,nocc)
 
 EMP2J_quadmem_python=get_MP2J_quadmem(moRocc,moRvirt,coulGsmall,"Python")
 EMP2J_quadmem_cython=get_MP2J_quadmem(moRocc,moRvirt,coulGsmall,"Cython")
-EMP2J_linmem_python=get_MP2J_linmem(moRocc,moRvirt,coulGsmall,4.0,"Python")
-EMP2J_linmem_cython=get_MP2J_linmem(moRocc,moRvirt,coulGsmall,4.0,"Cython")
+EMP2J_linmem_python=get_MP2J_linmem(moRocc,moRvirt,coulGsmall,1.0,"Python")
+EMP2J_linmem_cython=get_MP2J_linmem(moRocc,moRvirt,coulGsmall,1.0,"Cython")
 
 print "EMP2J_quadmem_python: ", EMP2J_quadmem_python
 print "EMP2J_quadmem_cython: ", EMP2J_quadmem_cython
