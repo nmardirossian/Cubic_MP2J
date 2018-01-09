@@ -120,9 +120,11 @@ def get_LT_data():
 
 	return (tauarray,weightarray,NLapPoints)
 
-def get_MP2J_quadmem(moRocc,moRvirt,coulGsmall,opt="Cython"):
+def get_MP2J_quadmem(moRocc,moRvirt,coulGsmall,opt="Cython",OLP=None):
 
 	(tauarray,weightarray,NLapPoints)=get_LT_data()
+	if OLP!=None:
+		NLapPoints=OLP
 
 	if (numpy.shape(moRocc)[1]==numpy.shape(moRvirt)[1]):
 		ngs=numpy.shape(moRocc)[1]
@@ -156,9 +158,11 @@ def get_MP2J_quadmem(moRocc,moRvirt,coulGsmall,opt="Cython"):
 
 	return EMP2J
 
-def get_MP2J_linmem(moRocc,moRvirt,coulGsmall,mem_avail,opt="Cython"):
+def get_MP2J_linmem(moRocc,moRvirt,coulGsmall,mem_avail=1.0,opt="Cython",OLP=None):
 
 	(tauarray,weightarray,NLapPoints)=get_LT_data()
+	if OLP!=None:
+		NLapPoints=OLP
 
 	if (numpy.shape(moRocc)[1]==numpy.shape(moRvirt)[1]):
 		ngs=numpy.shape(moRocc)[1]
@@ -222,14 +226,22 @@ def get_MP2J_linmem(moRocc,moRvirt,coulGsmall,mem_avail,opt="Cython"):
 
 	return EMP2J
 
-cell=get_cell(6.74,'C','diamond','gth-szv',10,'gth-pade',[])
+cell=get_cell(6.74,'C','diamond','gth-szv',12,'gth-pade',[])
 (mo,orben,nocc)=get_orbitals(cell)
 (moRocc,moRvirt,coulGsmall)=get_moR(cell,mo,nocc)
 
-EMP2J_quadmem_python=get_MP2J_quadmem(moRocc,moRvirt,coulGsmall,"Python")
-EMP2J_quadmem_cython=get_MP2J_quadmem(moRocc,moRvirt,coulGsmall,"Cython")
-EMP2J_linmem_python=get_MP2J_linmem(moRocc,moRvirt,coulGsmall,1.0,"Python")
-EMP2J_linmem_cython=get_MP2J_linmem(moRocc,moRvirt,coulGsmall,1.0,"Cython")
+time.sleep(2)
+print "Doing O(N^2) mem with Python"
+EMP2J_quadmem_python=get_MP2J_quadmem(moRocc,moRvirt,coulGsmall,opt="Python",OLP=1)
+time.sleep(2)
+print "Doing O(N^2) mem with Cython"
+EMP2J_quadmem_cython=get_MP2J_quadmem(moRocc,moRvirt,coulGsmall,opt="Cython",OLP=1)
+time.sleep(2)
+print "Doing O(N) mem with Python"
+EMP2J_linmem_python=get_MP2J_linmem(moRocc,moRvirt,coulGsmall,mem_avail=1.0,opt="Python",OLP=1)
+time.sleep(2)
+print "Doing O(N) mem with Cython"
+EMP2J_linmem_cython=get_MP2J_linmem(moRocc,moRvirt,coulGsmall,mem_avail=1.0,opt="Cython",OLP=1)
 
 print "EMP2J_quadmem_python: ", EMP2J_quadmem_python
 print "EMP2J_quadmem_cython: ", EMP2J_quadmem_cython
