@@ -16,7 +16,7 @@ import pyscf.pbc.tools.pyscf_ase as pyscf_ase
 
 pyfftw.interfaces.cache.enable()
 
-def get_cell(lc_bohr,atom,unit_cell,basis,gs,pseudo,super):
+def get_cell(lc_bohr,atom,unit_cell,basis,mesh,pseudo,super):
 
 	cell=pbcgto.Cell()
 	boxlen=lc_bohr
@@ -27,7 +27,7 @@ def get_cell(lc_bohr,atom,unit_cell,basis,gs,pseudo,super):
 	cell.charge=0
 	cell.dimension=3
 	cell.incore_anyway=False
-	cell.gs=numpy.array([gs,gs,gs])
+	cell.mesh=numpy.array([mesh,mesh,mesh])
 	cell.max_memory=8000
 	cell.pseudo=pseudo
 	cell.spin=0
@@ -209,7 +209,7 @@ def get_MP2J_linmem(moRocc,moRvirt,coulGsmall,dim,mem_avail=1.0,opt="Cython",OLP
 
 	return EMP2J
 
-cell=get_cell(6.74,'C','diamond','gth-szv',8,'gth-pade',[])
+cell=get_cell(6.74,'C','diamond','gth-szv',16,'gth-pade',[])
 (mo,orben,nocc)=get_orbitals(cell)
 (moRocc,moRvirt,coulGsmall,dim)=get_moR(cell,mo,nocc)
 
