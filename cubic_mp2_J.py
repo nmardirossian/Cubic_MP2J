@@ -11,6 +11,7 @@ from pyscf.pbc import gto as pbcgto
 from pyscf.pbc import df as pbcdf
 from pyscf.pbc import tools as pbctools
 from pyscf import lib as pylib
+from pyscf.pbc.dft import numint
 import pyscf.pbc.tools.pyscf_ase as pyscf_ase
 
 pyfftw.interfaces.cache.enable()
@@ -61,23 +62,21 @@ def get_orbitals(cell):
 	return (mo,orben,nocc)
 
 def get_moR(cell,mo,nocc):
-	with_df=pbcdf.FFTDF(cell)
-	coords=cell.gen_uniform_grids(with_df.gs)
-	gs=with_df.gs[0]
-	dim=2*gs+1
+	coords=cell.gen_uniform_grids(mesh=cell.mesh)
+	dim=cell.mesh[0]
 	ngs=dim*dim*dim
 	smalldim=int(numpy.floor(dim/2.0))+1
 
-	aoR=with_df._numint.eval_ao(cell, coords)[0]
-	moR=numpy.asarray(pylib.dot(mo.T, aoR.T), order='C')
+	aoR=numint.eval_ao(cell, coords) #[ngs x nao]
+	moR=numpy.asarray(pylib.dot(mo.T, aoR.T), order='C') #[nao x ngs]
 	moRocc=moR[:nocc]
 	moRvirt=moR[nocc:]
 
-	coulG=pbctools.get_coulG(cell, gs=with_df.gs)
-	coulGsmall=coulG.reshape([dim,dim,dim])
+	coulG=pbctools.get_coulG(cell, mesh=cell.mesh)
+	coulGsmall=coulG.reshape(cell.mesh)
 	coulGsmall=coulGsmall[:,:,:smalldim].reshape([dim*dim*smalldim])
 
-	return (moRocc,moRvirt,coulGsmall)
+	return (moRocc,moRvirt,coulGsmall,dim)
 
 def get_batch_info(mem_avail,ngs,nocc,nvirt):
 
@@ -88,27 +87,15 @@ def get_batch_info(mem_avail,ngs,nocc,nvirt):
 
 	return (bsize,bnum)
 
-def get_dim_from_ngs(ngs):
+def compute_fft(func,coul,dim):
 
-	dim=numpy.full(3,int(numpy.cbrt(ngs)))
-
-	return dim
-
-def get_small_dim_from_ngs(ngs):
-
-	dim=get_dim_from_ngs(ngs)
-	dim[2]=int(numpy.floor(dim[2]/2.0))+1
-
-	return dim
-
-def compute_fft(func,coul):
-
-	dim=get_dim_from_ngs(len(func))
-	smalldim=get_small_dim_from_ngs(len(func))
+	dim_array=numpy.full(3,dim)
+	small_dim_array=dim_array.copy()
+	small_dim_array[2]=int(numpy.floor(dim_array[2]/2.0))+1
 	
-	func=pyfftw.interfaces.numpy_fft.rfftn(func.reshape(dim),dim,planner_effort='FFTW_MEASURE')
-	func*=coul.reshape(smalldim)
-	func=pyfftw.interfaces.numpy_fft.irfftn(func,dim,planner_effort='FFTW_MEASURE').flatten()
+	func=pyfftw.interfaces.numpy_fft.rfftn(func.reshape(dim_array),dim_array,planner_effort='FFTW_MEASURE')
+	func*=coul.reshape(small_dim_array)
+	func=pyfftw.interfaces.numpy_fft.irfftn(func,dim_array,planner_effort='FFTW_MEASURE').flatten()
 
 	return func
 
@@ -120,15 +107,13 @@ def get_LT_data():
 
 	return (tauarray,weightarray,NLapPoints)
 
-def get_MP2J_quadmem(moRocc,moRvirt,coulGsmall,opt="Cython",OLP=None):
+def get_MP2J_quadmem(moRocc,moRvirt,coulGsmall,dim,opt="Cython",OLP=None):
 
 	(tauarray,weightarray,NLapPoints)=get_LT_data()
 	if OLP!=None:
 		NLapPoints=OLP
 
-	if (numpy.shape(moRocc)[1]==numpy.shape(moRvirt)[1]):
-		ngs=numpy.shape(moRocc)[1]
-		dim=int(numpy.cbrt(ngs))
+	ngs=dim*dim*dim
 
 	Jtime=time.time()
 	EMP2J=0.0
@@ -146,7 +131,7 @@ def get_MP2J_quadmem(moRocc,moRvirt,coulGsmall,opt="Cython",OLP=None):
 		else:
 			F=numpy.zeros((ngs,ngs),dtype='float64') #[ngs x ngs]
 			for j in range(ngs):
-				F[j]=compute_fft(f[j,:],coulGsmall)
+				F[j]=compute_fft(f[j,:],coulGsmall,dim)
 		f=None
 		Jint=numpy.sum(F.T*F)
 		F=None
@@ -158,17 +143,15 @@ def get_MP2J_quadmem(moRocc,moRvirt,coulGsmall,opt="Cython",OLP=None):
 
 	return EMP2J
 
-def get_MP2J_linmem(moRocc,moRvirt,coulGsmall,mem_avail=1.0,opt="Cython",OLP=None):
+def get_MP2J_linmem(moRocc,moRvirt,coulGsmall,dim,mem_avail=1.0,opt="Cython",OLP=None):
 
 	(tauarray,weightarray,NLapPoints)=get_LT_data()
 	if OLP!=None:
 		NLapPoints=OLP
 
-	if (numpy.shape(moRocc)[1]==numpy.shape(moRvirt)[1]):
-		ngs=numpy.shape(moRocc)[1]
-		dim=int(numpy.cbrt(ngs))
+	ngs=dim*dim*dim
 
-	(bsize,bnum)=get_batch_info(mem_avail,ngs,numpy.shape(moRocc)[0],numpy.shape(moRvirt)[0],)
+	(bsize,bnum)=get_batch_info(mem_avail,ngs,numpy.shape(moRocc)[0],numpy.shape(moRvirt)[0])
 	print "Splitting the task into ", bnum, " batches of size ", bsize
 
 	Jtime=time.time()
@@ -189,7 +172,7 @@ def get_MP2J_linmem(moRocc,moRvirt,coulGsmall,mem_avail=1.0,opt="Cython",OLP=Non
 			else:
 				F=numpy.zeros((cur_bsize,ngs),dtype='float64') #[cur_bsize x ngs]
 				for j in range(cur_bsize):
-					F[j]=compute_fft(f[j,:],coulGsmall)
+					F[j]=compute_fft(f[j,:],coulGsmall,dim)
 			f=None
 			if bnum>1:
 				F_T=numpy.zeros((ngs,cur_bsize),dtype='float64')
@@ -206,7 +189,7 @@ def get_MP2J_linmem(moRocc,moRvirt,coulGsmall,mem_avail=1.0,opt="Cython",OLP=Non
 						else:
 							F_in=numpy.zeros((cur_bsize_in,ngs),dtype='float64') #[cur_bsize x ngs]
 							for k in range(cur_bsize_in):
-								F_in[k]=compute_fft(f_in[k,:],coulGsmall)
+								F_in[k]=compute_fft(f_in[k,:],coulGsmall,dim)
 						f_in=None
 						F_T[b2*bsize:(b2+1)*bsize]=F_in[:,b1*bsize:(b1+1)*bsize]
 						F_in=None
@@ -226,22 +209,22 @@ def get_MP2J_linmem(moRocc,moRvirt,coulGsmall,mem_avail=1.0,opt="Cython",OLP=Non
 
 	return EMP2J
 
-cell=get_cell(6.74,'C','diamond','gth-szv',12,'gth-pade',[])
+cell=get_cell(6.74,'C','diamond','gth-szv',8,'gth-pade',[])
 (mo,orben,nocc)=get_orbitals(cell)
-(moRocc,moRvirt,coulGsmall)=get_moR(cell,mo,nocc)
+(moRocc,moRvirt,coulGsmall,dim)=get_moR(cell,mo,nocc)
 
 time.sleep(2)
 print "Doing O(N^2) mem with Python"
-EMP2J_quadmem_python=get_MP2J_quadmem(moRocc,moRvirt,coulGsmall,opt="Python",OLP=1)
+EMP2J_quadmem_python=get_MP2J_quadmem(moRocc,moRvirt,coulGsmall,dim,opt="Python",OLP=1)
 time.sleep(2)
 print "Doing O(N^2) mem with Cython"
-EMP2J_quadmem_cython=get_MP2J_quadmem(moRocc,moRvirt,coulGsmall,opt="Cython",OLP=1)
+EMP2J_quadmem_cython=get_MP2J_quadmem(moRocc,moRvirt,coulGsmall,dim,opt="Cython",OLP=1)
 time.sleep(2)
 print "Doing O(N) mem with Python"
-EMP2J_linmem_python=get_MP2J_linmem(moRocc,moRvirt,coulGsmall,mem_avail=1.0,opt="Python",OLP=1)
+EMP2J_linmem_python=get_MP2J_linmem(moRocc,moRvirt,coulGsmall,dim,mem_avail=1.0,opt="Python",OLP=1)
 time.sleep(2)
 print "Doing O(N) mem with Cython"
-EMP2J_linmem_cython=get_MP2J_linmem(moRocc,moRvirt,coulGsmall,mem_avail=1.0,opt="Cython",OLP=1)
+EMP2J_linmem_cython=get_MP2J_linmem(moRocc,moRvirt,coulGsmall,dim,mem_avail=1.0,opt="Cython",OLP=1)
 
 print "EMP2J_quadmem_python: ", EMP2J_quadmem_python
 print "EMP2J_quadmem_cython: ", EMP2J_quadmem_cython
