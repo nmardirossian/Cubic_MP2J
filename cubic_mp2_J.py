@@ -220,25 +220,26 @@ def kernel(mp, mo_energy=None, mo_coeff=None, verbose=logger.NOTE):
 
     nocc=mp.nocc
     nvirt=mp.nmo-nocc
-    if mo_energy is None: mo_energy=mp.mo_energy.reshape(-1,1)
-    if mo_coeff is None: mo_coeff=mp.mo_coeff
+    ngs=mp.ngs
+    if mo_energy is None: mo_energy=mp.mo_energy #[nmo x 1]
+    if mo_coeff is None: mo_coeff=mp.mo_coeff #[nao x nmo]
+    mo_energy=mo_energy.reshape(-1,1)
 
     cell=mp._scf.cell
     mesh=cell.mesh
     dim=mesh[0]
     smalldim=int(numpy.floor(dim/2.0))+1
-    ngs=dim*dim*dim
 
-    coulG=pbctools.get_coulG(cell, mesh=mesh)
-    coulG=coulG.reshape(mesh)
+    coulG=pbctools.get_coulG(cell, mesh=mesh) #[ngs]
+    coulG=coulG.reshape(mesh) #[dim1 x dim2 x dim3]
     coulG=coulG[:,:,:smalldim].reshape([dim*dim*smalldim])
 
     coords=cell.gen_uniform_grids(mesh=mesh)
 
-    #aoR=numint.eval_ao(cell, coords) #[ngs x nao] #
-    #moR=numpy.asarray(numpy.dot(mo_coeff.T, aoR.T), order='C') #[nao x ngs] #
-    #moRocc=moR[:nocc] #
-    #moRvirt=moR[nocc:] #
+    #aoR=numint.eval_ao(cell, coords) #[ngs x nao]
+    #moR=numpy.asarray(numpy.dot(mo_coeff.T, aoR.T), order='C') #[nao x ngs]
+    #moRocc=moR[:nocc]
+    #moRvirt=moR[nocc:]
 
     (tauarray,weightarray,NLapPoints)=get_LT_data()
 
@@ -370,7 +371,7 @@ def kernel(mp, mo_energy=None, mo_coeff=None, verbose=logger.NOTE):
 
     return EMP2J
 
-cell=get_cell(10.26,'Si','diamond','gth-szv',16,'gth-pade',[])
+cell=get_cell(10.26,'Si','diamond','gth-szv',4,'gth-pade',[2,2,2])
 scf=get_scf(cell)
 mp2=LTSOSMP2(scf)
 mp2.optimization='Cython'
