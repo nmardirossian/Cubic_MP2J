@@ -235,10 +235,10 @@ def kernel(mp, mo_energy=None, mo_coeff=None, verbose=logger.NOTE):
 
     coords=cell.gen_uniform_grids(mesh=mesh)
 
-    #aoR=numint.eval_ao(cell, coords) #[ngs x nao]
-    #moR=numpy.asarray(pylib.dot(mo_coeff.T, aoR.T), order='C') #[nao x ngs]
-    #moRocc=moR[:nocc]
-    #moRvirt=moR[nocc:]
+    #aoR=numint.eval_ao(cell, coords) #[ngs x nao] #
+    #moR=numpy.asarray(numpy.dot(mo_coeff.T, aoR.T), order='C') #[nao x ngs] #
+    #moRocc=moR[:nocc] #
+    #moRvirt=moR[nocc:] #
 
     (tauarray,weightarray,NLapPoints)=get_LT_data()
 
@@ -264,8 +264,9 @@ def kernel(mp, mo_energy=None, mo_coeff=None, verbose=logger.NOTE):
         #moRoccW=moRocc*numpy.exp(-mo_energy[:nocc]*tauarray[i]/2.) #[nocc x ngs]
         #moRvirtW=moRvirt*numpy.exp(mo_energy[nocc:]*tauarray[i]/2.) #[nvirt x ngs]
 
-        mo_occ=mo_coeff.T[:nocc]*numpy.exp(-mo_energy[:nocc]*tauarray[i]/2.)
-        mo_virt=mo_coeff.T[nocc:]*numpy.exp(mo_energy[nocc:]*tauarray[i]/2.)
+        mo_occ=mo_coeff.T[:nocc]*numpy.exp(-mo_energy[:nocc]*tauarray[i]/2.) #[nmo x nao]
+        mo_virt=mo_coeff.T[nocc:]*numpy.exp(mo_energy[nocc:]*tauarray[i]/2.) #[nmo x nao]
+
         for b1 in range(grid_batch_num):
             gbs=grid_batch[b1+1]-grid_batch[b1]
 
@@ -293,8 +294,8 @@ def kernel(mp, mo_energy=None, mo_coeff=None, verbose=logger.NOTE):
                 g_v+=numpy.dot(moR_b.T[grid_batch[b1]:grid_batch[b1+1]],moR_b)
                 moR_b=None
 
-            #g_o=pylib.dot(moRoccW.T[grid_batch[b1]:grid_batch[b1+1]],moRoccW) #[gbs x ngs]
-            #g_v=pylib.dot(moRvirtW.T[grid_batch[b1]:grid_batch[b1+1]],moRvirtW) #[gbs x ngs]
+            #g_o=numpy.dot(moRoccW.T[grid_batch[b1]:grid_batch[b1+1]],moRoccW) #[gbs x ngs]
+            #g_v=numpy.dot(moRvirtW.T[grid_batch[b1]:grid_batch[b1+1]],moRvirtW) #[gbs x ngs]
 
             f=g_o*g_v #[gbs x ngs]
             g_o=g_v=None
@@ -338,8 +339,8 @@ def kernel(mp, mo_energy=None, mo_coeff=None, verbose=logger.NOTE):
                             g_v_in+=numpy.dot(moR_b.T[grid_batch[b2]:grid_batch[b2+1]],moR_b)
                             moR_b=None
 
-                        #g_o_in=pylib.dot(moRoccW.T[grid_batch[b2]:grid_batch[b2+1]],moRoccW) #[gbs_in x ngs]
-                        #g_v_in=pylib.dot(moRvirtW.T[grid_batch[b2]:grid_batch[b2+1]],moRvirtW) #[gbs_in x ngs]
+                        #g_o_in=numpy.dot(moRoccW.T[grid_batch[b2]:grid_batch[b2+1]],moRoccW) #[gbs_in x ngs]
+                        #g_v_in=numpy.dot(moRvirtW.T[grid_batch[b2]:grid_batch[b2+1]],moRvirtW) #[gbs_in x ngs]
 
                         f_in=g_o_in*g_v_in #[gbs_in x ngs]
                         g_o_in=g_v_in=None
@@ -364,16 +365,16 @@ def kernel(mp, mo_energy=None, mo_coeff=None, verbose=logger.NOTE):
                 F=F_T=None
         moRoccW=moRvirtW=None
         EMP2J-=2.*weightarray[i]*Jint*(cell.vol/ngs)**2.
-        print EMP2J.real
     print "Took this long for J: ", time.time()-Jtime
     EMP2J=EMP2J.real
-    print "EMP2J: ", EMP2J
 
     return EMP2J
 
-cell=get_cell(10.26,'Si','diamond','gth-szv',4,'gth-pade',[2,2,2])
+cell=get_cell(10.26,'Si','diamond','gth-szv',16,'gth-pade',[])
 scf=get_scf(cell)
 mp2=LTSOSMP2(scf)
 mp2.optimization='Cython'
 mp2.lt_points=1
+t1=time.time()
 mp2_energy=mp2.kernel()
+print "Took: ", time.time()-t1
