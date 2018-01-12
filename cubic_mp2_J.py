@@ -171,7 +171,7 @@ def get_LT_data():
 
     return (tauarray,weightarray,NLapPoints)
 
-def get_batch(mem_avail,size,num_mat,override=0):
+def get_batch(mem_avail,size,num_mat=1,override=0):
 
     mem_avail=float(mem_avail)
     max_batch_size=int(numpy.floor((mem_avail*(10.**6.)/8.)/(num_mat*size)))
@@ -219,7 +219,7 @@ def compute_fft(func,coul,dim):
 def kernel(mp, mo_energy=None, mo_coeff=None, verbose=logger.NOTE):
 
     nocc=mp.nocc
-    nvir=mp.nmo-nocc
+    nvirt=mp.nmo-nocc
     if mo_energy is None: mo_energy=mp.mo_energy.reshape(-1,1)
     if mo_coeff is None: mo_coeff=mp.mo_coeff
 
@@ -235,46 +235,66 @@ def kernel(mp, mo_energy=None, mo_coeff=None, verbose=logger.NOTE):
 
     coords=cell.gen_uniform_grids(mesh=mesh)
 
-    aoR=numint.eval_ao(cell, coords) #[ngs x nao]
-    moR=numpy.asarray(pylib.dot(mo_coeff.T, aoR.T), order='C') #[nao x ngs]
-    moRocc=moR[:nocc]
-    moRvirt=moR[nocc:]
+    #aoR=numint.eval_ao(cell, coords) #[ngs x nao]
+    #moR=numpy.asarray(pylib.dot(mo_coeff.T, aoR.T), order='C') #[nao x ngs]
+    #moRocc=moR[:nocc]
+    #moRvirt=moR[nocc:]
 
     (tauarray,weightarray,NLapPoints)=get_LT_data()
 
     #batching
-    (max_grid_batch_size,grid_batch_num,grid_batch)=get_batch(mp.max_memory,ngs,5,override=0) #batching grid
-    (max_mo_batch_size,mo_batch_num,mo_batch)=get_batch(mp.max_memory,nocc,2,override=20) #batching MO
-    (shell_batch,ao_batch)=get_ao_batch(cell.ao_loc_nr(),max_mo_batch_size) #batching AO
+    (max_grid_batch_size,grid_batch_num,grid_batch)=get_batch(mp.max_memory,ngs,num_mat=5,override=0) #batching grid
+    (max_mo_occ_batch_size,mo_occ_batch_num,mo_occ_batch)=get_batch(mp.max_memory,nocc,num_mat=2,override=0) #batching occ MOs
+    (shell_occ_batch,ao_occ_batch)=get_ao_batch(cell.ao_loc_nr(),max_mo_occ_batch_size) #batching "occ" AOs
+    (max_mo_virt_batch_size,mo_virt_batch_num,mo_virt_batch)=get_batch(mp.max_memory,nvirt,num_mat=2,override=0) #batching virt MOs
+    (shell_virt_batch,ao_virt_batch)=get_ao_batch(cell.ao_loc_nr(),max_mo_virt_batch_size) #batching "virt" AOs
 
     if grid_batch_num > 1:
         print "Splitting the grid into ", grid_batch_num, " batches of max size ", max_grid_batch_size
-    if mo_batch_num > 1:
-        print "Splitting the MOs into ", mo_batch_num, " batches of max size ", max_mo_batch_size
+    if mo_occ_batch_num > 1:
+        print "Splitting the occupied MOs into ", mo_occ_batch_num, " batches of max size ", max_mo_occ_batch_size
+    if mo_virt_batch_num > 1:
+        print "Splitting the virtual MOs into ", mo_virt_batch_num, " batches of max size ", max_mo_virt_batch_size
 
     Jtime=time.time()
     EMP2J=0.0
     for i in range(numpy.amin([NLapPoints,mp.lt_points])):
         Jint=0.0
-        moRoccW=moRocc*numpy.exp(-mo_energy[:nocc]*tauarray[i]/2.) #[nocc x ngs]
-        moRvirtW=moRvirt*numpy.exp(mo_energy[nocc:]*tauarray[i]/2.) #[nvirt x ngs]
+
+        #moRoccW=moRocc*numpy.exp(-mo_energy[:nocc]*tauarray[i]/2.) #[nocc x ngs]
+        #moRvirtW=moRvirt*numpy.exp(mo_energy[nocc:]*tauarray[i]/2.) #[nvirt x ngs]
+
         mo_occ=mo_coeff.T[:nocc]*numpy.exp(-mo_energy[:nocc]*tauarray[i]/2.)
         mo_virt=mo_coeff.T[nocc:]*numpy.exp(mo_energy[nocc:]*tauarray[i]/2.)
         for b1 in range(grid_batch_num):
             gbs=grid_batch[b1+1]-grid_batch[b1]
 
             g_o=numpy.zeros((gbs,ngs))
-            for a1 in range(mo_batch_num):
-                mbs=mo_batch[a1+1]-mo_batch[a1]
-                moR_batch=numpy.zeros((mbs,ngs)) #[mbs x ngs]
-                for a2 in range(len(shell_batch)-1):
-                    aoR_batch=numint.eval_ao(cell, coords, shls_slice=(shell_batch[a2],shell_batch[a2+1])) #[ngs x shell_batch_size]
-                    mo_occ_batch=mo_occ[mo_batch[a1]:mo_batch[a1+1],ao_batch[a2]:ao_batch[a2+1]]
-                    moR_batch+=numpy.dot(mo_occ_batch,aoR_batch.T)
-                g_o+=numpy.dot(moR_batch.T[grid_batch[b1]:grid_batch[b1+1]],moR_batch)
+            for a1 in range(mo_occ_batch_num):
+                mbs=mo_occ_batch[a1+1]-mo_occ_batch[a1]
+                moR_b=numpy.zeros((mbs,ngs)) #[mbs x ngs]
+                for a2 in range(len(shell_occ_batch)-1):
+                    aoR_b=numint.eval_ao(cell, coords, shls_slice=(shell_occ_batch[a2],shell_occ_batch[a2+1])) #[ngs x shell_batch_size]
+                    mo_occ_b=mo_occ[mo_occ_batch[a1]:mo_occ_batch[a1+1],ao_occ_batch[a2]:ao_occ_batch[a2+1]]
+                    moR_b+=numpy.dot(mo_occ_b,aoR_b.T)
+                aoR_b=mo_occ_b=None
+                g_o+=numpy.dot(moR_b.T[grid_batch[b1]:grid_batch[b1+1]],moR_b)
+                moR_b=None
+
+            g_v=numpy.zeros((gbs,ngs))
+            for a1 in range(mo_virt_batch_num):
+                mbs=mo_virt_batch[a1+1]-mo_virt_batch[a1]
+                moR_b=numpy.zeros((mbs,ngs)) #[mbs x ngs]
+                for a2 in range(len(shell_virt_batch)-1):
+                    aoR_b=numint.eval_ao(cell, coords, shls_slice=(shell_virt_batch[a2],shell_virt_batch[a2+1])) #[ngs x shell_batch_size]
+                    mo_virt_b=mo_virt[mo_virt_batch[a1]:mo_virt_batch[a1+1],ao_virt_batch[a2]:ao_virt_batch[a2+1]]
+                    moR_b+=numpy.dot(mo_virt_b,aoR_b.T)
+                aoR_b=mo_virt_b=None
+                g_v+=numpy.dot(moR_b.T[grid_batch[b1]:grid_batch[b1+1]],moR_b)
+                moR_b=None
 
             #g_o=pylib.dot(moRoccW.T[grid_batch[b1]:grid_batch[b1+1]],moRoccW) #[gbs x ngs]
-            g_v=pylib.dot(moRvirtW.T[grid_batch[b1]:grid_batch[b1+1]],moRvirtW) #[gbs x ngs]
+            #g_v=pylib.dot(moRvirtW.T[grid_batch[b1]:grid_batch[b1+1]],moRvirtW) #[gbs x ngs]
 
             f=g_o*g_v #[gbs x ngs]
             g_o=g_v=None
@@ -293,9 +313,35 @@ def kernel(mp, mo_energy=None, mo_coeff=None, verbose=logger.NOTE):
                 for b2 in range(grid_batch_num):
                     if b2!=b1:
                         gbs_in=grid_batch[b2+1]-grid_batch[b2]
-                        g_o_in=pylib.dot(moRoccW.T[grid_batch[b2]:grid_batch[b2+1]],moRoccW) #[gbs_in x ngs]
-                        g_v_in=pylib.dot(moRvirtW.T[grid_batch[b2]:grid_batch[b2+1]],moRvirtW) #[gbs_in x ngs]
-                        f_in=g_o_in*g_v_in #[gbs x ngs]
+
+                        g_o_in=numpy.zeros((gbs_in,ngs))
+                        for a1 in range(mo_occ_batch_num):
+                            mbs=mo_occ_batch[a1+1]-mo_occ_batch[a1]
+                            moR_b=numpy.zeros((mbs,ngs)) #[mbs x ngs]
+                            for a2 in range(len(shell_occ_batch)-1):
+                                aoR_b=numint.eval_ao(cell, coords, shls_slice=(shell_occ_batch[a2],shell_occ_batch[a2+1])) #[ngs x shell_batch_size]
+                                mo_occ_b=mo_occ[mo_occ_batch[a1]:mo_occ_batch[a1+1],ao_occ_batch[a2]:ao_occ_batch[a2+1]]
+                                moR_b+=numpy.dot(mo_occ_b,aoR_b.T)
+                            aoR_b=mo_occ_b=None
+                            g_o_in+=numpy.dot(moR_b.T[grid_batch[b2]:grid_batch[b2+1]],moR_b)
+                            moR_b=None
+                      
+                        g_v_in=numpy.zeros((gbs_in,ngs))
+                        for a1 in range(mo_virt_batch_num):
+                            mbs=mo_virt_batch[a1+1]-mo_virt_batch[a1]
+                            moR_b=numpy.zeros((mbs,ngs)) #[mbs x ngs]
+                            for a2 in range(len(shell_virt_batch)-1):
+                                aoR_b=numint.eval_ao(cell, coords, shls_slice=(shell_virt_batch[a2],shell_virt_batch[a2+1])) #[ngs x shell_batch_size]
+                                mo_virt_b=mo_virt[mo_virt_batch[a1]:mo_virt_batch[a1+1],ao_virt_batch[a2]:ao_virt_batch[a2+1]]
+                                moR_b+=numpy.dot(mo_virt_b,aoR_b.T)
+                            aoR_b=mo_virt_b=None
+                            g_v_in+=numpy.dot(moR_b.T[grid_batch[b2]:grid_batch[b2+1]],moR_b)
+                            moR_b=None
+
+                        #g_o_in=pylib.dot(moRoccW.T[grid_batch[b2]:grid_batch[b2+1]],moRoccW) #[gbs_in x ngs]
+                        #g_v_in=pylib.dot(moRvirtW.T[grid_batch[b2]:grid_batch[b2+1]],moRvirtW) #[gbs_in x ngs]
+
+                        f_in=g_o_in*g_v_in #[gbs_in x ngs]
                         g_o_in=g_v_in=None
                         if mp.optimization=="Cython":
                             F_in=numpy.zeros((gbs_in,ngs),dtype='float64') #[gbs_in x ngs]
