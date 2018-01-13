@@ -232,7 +232,7 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
     (tauarray,weightarray,NLapPoints)=get_LT_data()
 
     #batching
-    (max_grid_batch_size,grid_batch_num,grid_batch)=get_batch(mp.max_memory,ngs,num_mat=5,override=0) #batching grid
+    (max_grid_batch_size,grid_batch_num,grid_batch)=get_batch(mp.max_memory,ngs,num_mat=4,override=0) #batching grid
     (max_mo_occ_batch_size,mo_occ_batch_num,mo_occ_batch)=get_batch(mp.max_memory,nocc,num_mat=2,override=0) #batching occ MOs
     (shell_occ_batch,ao_occ_batch)=get_ao_batch(cell.ao_loc_nr(),max_mo_occ_batch_size) #batching "occ" AOs
     (max_mo_virt_batch_size,mo_virt_batch_num,mo_virt_batch)=get_batch(mp.max_memory,nvirt,num_mat=2,override=0) #batching virt MOs
@@ -264,7 +264,8 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                 aoR_b=mo_occ_b=None
                 g_o+=numpy.dot(moR_b.T[grid_batch[b1]:grid_batch[b1+1]],moR_b) #[gbs x ngs]
                 moR_b=None
-            g_v=numpy.zeros((gbs,ngs)) #[gbs x ngs]
+            #g_v=numpy.zeros((gbs,ngs)) #[gbs x ngs]
+            f=numpy.zeros((gbs,ngs)) #[gbs x ngs]
             for a1 in range(mo_virt_batch_num):
                 mbs=mo_virt_batch[a1+1]-mo_virt_batch[a1]
                 moR_b=numpy.zeros((mbs,ngs)) #[mbs x ngs]
@@ -273,10 +274,13 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                     mo_virt_b=mo_virt[mo_virt_batch[a1]:mo_virt_batch[a1+1],ao_virt_batch[a2]:ao_virt_batch[a2+1]] #[mbs x shell_batch_size]
                     moR_b+=numpy.dot(mo_virt_b,aoR_b.T) #[mbs x shell_batch_size]
                 aoR_b=mo_virt_b=None
-                g_v+=numpy.dot(moR_b.T[grid_batch[b1]:grid_batch[b1+1]],moR_b) #[gbs x ngs]
+                #g_v+=numpy.dot(moR_b.T[grid_batch[b1]:grid_batch[b1+1]],moR_b) #[gbs x ngs]
+                f+=numpy.dot(moR_b.T[grid_batch[b1]:grid_batch[b1+1]],moR_b) #[gbs x ngs]
                 moR_b=None
-            f=g_o*g_v #[gbs x ngs]
-            g_o=g_v=None
+            #f=g_o*g_v #[gbs x ngs]
+            #g_o=g_v=None
+            f=g_o*f #[gbs x ngs]
+            g_o=None
             if mp.optimization=="Cython":
                 F=numpy.zeros((gbs,ngs),dtype='float64') #[gbs x ngs]
                 fft_cython.getJ(gbs,f,F,coulG,mesh,smallmesh)
@@ -303,7 +307,8 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                             aoR_b=mo_occ_b=None
                             g_o_in+=numpy.dot(moR_b.T[grid_batch[b2]:grid_batch[b2+1]],moR_b) #[gbs_in x ngs]
                             moR_b=None
-                        g_v_in=numpy.zeros((gbs_in,ngs)) #[gbs x ngs]
+                        #g_v_in=numpy.zeros((gbs_in,ngs)) #[gbs x ngs]
+                        f_in=numpy.zeros((gbs_in,ngs)) #[gbs x ngs]
                         for a1 in range(mo_virt_batch_num):
                             mbs=mo_virt_batch[a1+1]-mo_virt_batch[a1]
                             moR_b=numpy.zeros((mbs,ngs)) #[mbs x ngs]
@@ -312,10 +317,13 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                                 mo_virt_b=mo_virt[mo_virt_batch[a1]:mo_virt_batch[a1+1],ao_virt_batch[a2]:ao_virt_batch[a2+1]] #[mbs x shell_batch_size]
                                 moR_b+=numpy.dot(mo_virt_b,aoR_b.T) #[mbs x ngs]
                             aoR_b=mo_virt_b=None
-                            g_v_in+=numpy.dot(moR_b.T[grid_batch[b2]:grid_batch[b2+1]],moR_b) #[gbs_in x ngs]
+                            #g_v_in+=numpy.dot(moR_b.T[grid_batch[b2]:grid_batch[b2+1]],moR_b) #[gbs_in x ngs]
+                            f_in+=numpy.dot(moR_b.T[grid_batch[b2]:grid_batch[b2+1]],moR_b) #[gbs_in x ngs]
                             moR_b=None
-                        f_in=g_o_in*g_v_in #[gbs_in x ngs]
-                        g_o_in=g_v_in=None
+                        #f_in=g_o_in*g_v_in #[gbs_in x ngs]
+                        #g_o_in=g_v_in=None
+                        f_in=g_o_in*f_in #[gbs_in x ngs]
+                        g_o_in=None
                         if mp.optimization=="Cython":
                             F_in=numpy.zeros((gbs_in,ngs),dtype='float64') #[gbs_in x ngs]
                             fft_cython.getJ(gbs_in,f_in,F_in,coulG,mesh,smallmesh)
@@ -342,11 +350,13 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
 
     return EMP2J
 
-cell=get_cell(10.26,'Si','diamond','gth-szv',4,'gth-pade',supercell=[2,2,2])
+#cell=get_cell(10.26,'Si','diamond','gth-szv',8,'gth-pade',supercell=[2,2,2])
+cell=get_cell(6.74,'C','diamond','gth-szv',10,'gth-pade',supercell=None)
 scf=get_scf(cell)
 mp2=LTSOSMP2(scf)
 mp2.optimization='Cython'
 mp2.lt_points=1
 t1=time.time()
+mp2.max_memory=1000
 mp2_energy=mp2.kernel()
 print "Took: ", time.time()-t1
