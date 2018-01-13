@@ -204,15 +204,11 @@ def get_ao_batch(shell_data,max_mo_batch_size):
 
     return (shell_batch,ao_batch)
 
-def compute_fft(func,coul,dim):
+def compute_fft(func,coul,mesh,smallmesh):
 
-    dim_array=numpy.full(3,dim)
-    small_dim_array=dim_array.copy()
-    small_dim_array[2]=int(numpy.floor(dim_array[2]/2.0))+1
-    
-    func=pyfftw.interfaces.numpy_fft.rfftn(func.reshape(dim_array),dim_array,planner_effort='FFTW_MEASURE')
-    func*=coul.reshape(small_dim_array)
-    func=pyfftw.interfaces.numpy_fft.irfftn(func,dim_array,planner_effort='FFTW_MEASURE').flatten()
+    func=pyfftw.interfaces.numpy_fft.rfftn(func.reshape(mesh),mesh,planner_effort='FFTW_MEASURE')
+    func*=coul.reshape(smallmesh)
+    func=pyfftw.interfaces.numpy_fft.irfftn(func,mesh,planner_effort='FFTW_MEASURE').flatten()
 
     return func
 
@@ -227,19 +223,14 @@ def kernel(mp, mo_energy=None, mo_coeff=None, verbose=logger.NOTE):
 
     cell=mp._scf.cell
     mesh=cell.mesh
-    dim=mesh[0]
-    smalldim=int(numpy.floor(dim/2.0))+1
+    smallmesh=mesh.copy()
+    smallmesh[-1]=int(numpy.floor(smallmesh[-1]/2.0))+1
 
     coulG=pbctools.get_coulG(cell, mesh=mesh) #[ngs]
     coulG=coulG.reshape(mesh) #[dim1 x dim2 x dim3]
-    coulG=coulG[:,:,:smalldim].reshape([dim*dim*smalldim])
+    coulG=coulG[:,:,:smallmesh[-1]].reshape([numpy.product(smallmesh),])
 
     coords=cell.gen_uniform_grids(mesh=mesh)
-
-    #aoR=numint.eval_ao(cell, coords) #[ngs x nao]
-    #moR=numpy.asarray(numpy.dot(mo_coeff.T, aoR.T), order='C') #[nao x ngs]
-    #moRocc=moR[:nocc]
-    #moRvirt=moR[nocc:]
 
     (tauarray,weightarray,NLapPoints)=get_LT_data()
 
@@ -261,9 +252,6 @@ def kernel(mp, mo_energy=None, mo_coeff=None, verbose=logger.NOTE):
     EMP2J=0.0
     for i in range(numpy.amin([NLapPoints,mp.lt_points])):
         Jint=0.0
-
-        #moRoccW=moRocc*numpy.exp(-mo_energy[:nocc]*tauarray[i]/2.) #[nocc x ngs]
-        #moRvirtW=moRvirt*numpy.exp(mo_energy[nocc:]*tauarray[i]/2.) #[nvirt x ngs]
 
         mo_occ=mo_coeff.T[:nocc]*numpy.exp(-mo_energy[:nocc]*tauarray[i]/2.) #[nmo x nao]
         mo_virt=mo_coeff.T[nocc:]*numpy.exp(mo_energy[nocc:]*tauarray[i]/2.) #[nmo x nao]
@@ -295,18 +283,15 @@ def kernel(mp, mo_energy=None, mo_coeff=None, verbose=logger.NOTE):
                 g_v+=numpy.dot(moR_b.T[grid_batch[b1]:grid_batch[b1+1]],moR_b)
                 moR_b=None
 
-            #g_o=numpy.dot(moRoccW.T[grid_batch[b1]:grid_batch[b1+1]],moRoccW) #[gbs x ngs]
-            #g_v=numpy.dot(moRvirtW.T[grid_batch[b1]:grid_batch[b1+1]],moRvirtW) #[gbs x ngs]
-
             f=g_o*g_v #[gbs x ngs]
             g_o=g_v=None
             if mp.optimization=="Cython":
                 F=numpy.zeros((gbs,ngs),dtype='float64') #[gbs x ngs]
-                fft_cython.getJ(dim,gbs,f,F,coulG)
+                fft_cython.getJ(gbs,f,F,coulG,mesh,smallmesh)
             elif mp.optimization=="Python":
                 F=numpy.zeros((gbs,ngs),dtype='float64') #[gbs x ngs]
                 for j in range(gbs):
-                    F[j]=compute_fft(f[j,:],coulG,dim)
+                    F[j]=compute_fft(f[j,:],coulG,mesh,smallmesh)
             else:
                 raise RuntimeError('Only Cython and Python implemented!')
             f=None
@@ -347,11 +332,11 @@ def kernel(mp, mo_energy=None, mo_coeff=None, verbose=logger.NOTE):
                         g_o_in=g_v_in=None
                         if mp.optimization=="Cython":
                             F_in=numpy.zeros((gbs_in,ngs),dtype='float64') #[gbs_in x ngs]
-                            fft_cython.getJ(dim,gbs_in,f_in,F_in,coulG)
+                            fft_cython.getJ(gbs_in,f_in,F_in,coulG,mesh,smallmesh)
                         elif mp.optimization=="Python":
                             F_in=numpy.zeros((gbs_in,ngs),dtype='float64') #[gbs_in x ngs]
                             for k in range(gbs_in):
-                                F_in[k]=compute_fft(f_in[k,:],coulG,dim)
+                                F_in[k]=compute_fft(f_in[k,:],coulG,mesh,smallmesh)
                         else:
                             raise RuntimeError('Only Cython and Python implemented!')
                         f_in=None
@@ -371,7 +356,7 @@ def kernel(mp, mo_energy=None, mo_coeff=None, verbose=logger.NOTE):
 
     return EMP2J
 
-cell=get_cell(10.26,'Si','diamond','gth-szv',4,'gth-pade',[2,2,2])
+cell=get_cell(10.26,'Si','diamond','gth-szv',4,'gth-pade',[3,2,2])
 scf=get_scf(cell)
 mp2=LTSOSMP2(scf)
 mp2.optimization='Cython'

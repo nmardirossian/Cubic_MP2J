@@ -8,7 +8,7 @@
 #define IMAG 1
 //#define TIMING 1
 
-void getJ_c(long int dim, long int batch, double* f, double* F, double* coulGsmall){
+void getJ_c(long int batch, double* f, double* F, double* coulGsmall, long int* mesh, long int* smallmesh){
 
     long int j, l;
     double *signalfft;
@@ -23,18 +23,18 @@ void getJ_c(long int dim, long int batch, double* f, double* F, double* coulGsma
     double finalfilltime=0.0;
 #endif
 
-    long int ngssmall=dim*dim*(floor(dim/2.0)+1);
-	long int ngs=dim*dim*dim;
+    long int ngs=mesh[0]*mesh[1]*mesh[2];
+    long int ngssmall=smallmesh[0]*smallmesh[1]*smallmesh[2];
 
     signalfft=(double*) fftw_malloc(sizeof(double)*ngs);
     resultfft=(fftw_complex*) fftw_malloc(sizeof(fftw_complex)*ngssmall);
 
-    fftw_plan planfft = fftw_plan_dft_r2c_3d(dim,dim,dim,
+    fftw_plan planfft = fftw_plan_dft_r2c_3d(mesh[0],mesh[1],mesh[2],
                                              signalfft,
                                              resultfft,
                                              FFTW_MEASURE);
 
-    fftw_plan planifft = fftw_plan_dft_c2r_3d(dim,dim,dim,
+    fftw_plan planifft = fftw_plan_dft_c2r_3d(mesh[0],mesh[1],mesh[2],
                                               resultfft,
                                               signalfft,
                                               FFTW_MEASURE);
