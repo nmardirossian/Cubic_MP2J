@@ -210,8 +210,9 @@ def compute_fft(func,coulG,mesh,smallmesh):
 
 def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
 
+    nao=mp.nmo
     nocc=mp.nocc
-    nvirt=mp.nmo-nocc
+    nvirt=nao-nocc
     ngs=mp.ngs
     if mo_energy is None: mo_energy=mp.mo_energy #[nmo x 1]
     if mo_coeff is None: mo_coeff=mp.mo_coeff #[nao x nmo]
@@ -232,11 +233,13 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
     (tauarray,weightarray,NLapPoints)=get_LT_data()
 
     #batching
-    (max_grid_batch_size,grid_batch_num,grid_batch)=get_batch(mp.max_memory,ngs,num_mat=4,override=0) #batching grid
+    (max_grid_batch_size,grid_batch_num,grid_batch)=get_batch(mp.max_memory,ngs,num_mat=5,override=0) #batching grid
     (max_mo_occ_batch_size,mo_occ_batch_num,mo_occ_batch)=get_batch(mp.max_memory,nocc,num_mat=2,override=0) #batching occ MOs
-    (shell_occ_batch,ao_occ_batch)=get_ao_batch(cell.ao_loc_nr(),max_mo_occ_batch_size) #batching "occ" AOs
     (max_mo_virt_batch_size,mo_virt_batch_num,mo_virt_batch)=get_batch(mp.max_memory,nvirt,num_mat=2,override=0) #batching virt MOs
-    (shell_virt_batch,ao_virt_batch)=get_ao_batch(cell.ao_loc_nr(),max_mo_virt_batch_size) #batching "virt" AOs
+
+    (max_ao_batch_size,_,_)=get_batch(mp.max_memory,nao,num_mat=2,override=0) #batching AOs
+    (shell_occ_batch,ao_occ_batch)=get_ao_batch(cell.ao_loc_nr(),max_ao_batch_size) #batching "occ" AOs
+    (shell_virt_batch,ao_virt_batch)=get_ao_batch(cell.ao_loc_nr(),max_ao_batch_size) #batching "virt" AOs
 
     if grid_batch_num>1:
         print "Splitting the grid into ", grid_batch_num, " batches of max size ", max_grid_batch_size
@@ -350,8 +353,8 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
 
     return EMP2J
 
-#cell=get_cell(10.26,'Si','diamond','gth-szv',8,'gth-pade',supercell=[2,2,2])
-cell=get_cell(6.74,'C','diamond','gth-szv',10,'gth-pade',supercell=None)
+cell=get_cell(10.26,'Si','diamond','gth-szv',10,'gth-pade',supercell=[1,1,1])
+#cell=get_cell(6.74,'C','diamond','gth-szv',10,'gth-pade',supercell=None)
 scf=get_scf(cell)
 mp2=LTSOSMP2(scf)
 mp2.optimization='Cython'
