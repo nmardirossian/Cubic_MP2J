@@ -295,7 +295,7 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                 raise RuntimeError('Only Cython and Python implemented!')
             f=None
             if grid_batch_num>1:
-                F_T=numpy.zeros((ngs,gbs),dtype='float64') #[ngs x gbs]
+                #F_T=numpy.zeros((ngs,gbs),dtype='float64') #[ngs x gbs]
                 for b2 in range(grid_batch_num):
                     if b2!=b1:
                         gbs_in=grid_batch[b2+1]-grid_batch[b2]
@@ -337,15 +337,19 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                         else:
                             raise RuntimeError('Only Cython and Python implemented!')
                         f_in=None
-                        F_T[grid_batch[b2]:grid_batch[b2+1]]=F_in[:,grid_batch[b1]:grid_batch[b1+1]]
+                        #F_T[grid_batch[b2]:grid_batch[b2+1]]=F_in[:,grid_batch[b1]:grid_batch[b1+1]]
+                        Jint+=numpy.sum(F[:,grid_batch[b2]:grid_batch[b2+1]]*F_in[:,grid_batch[b1]:grid_batch[b1+1]].T) #TODO
                         F_in=None
                     else:
-                        F_T[grid_batch[b2]:grid_batch[b2+1]]=F[:,grid_batch[b1]:grid_batch[b1+1]]
-                Jint+=numpy.sum(F_T.T*F)
-                F=F_T=None
+                        #F_T[grid_batch[b2]:grid_batch[b2+1]]=F[:,grid_batch[b1]:grid_batch[b1+1]]
+                        Jint+=numpy.sum(F[:,grid_batch[b1]:grid_batch[b1+1]]*F[:,grid_batch[b1]:grid_batch[b1+1]].T) #TODO
+                #Jint+=numpy.sum(F_T.T*F)
+                #F=F_T=None
+                F=None
             else:
-                Jint+=numpy.sum(F.T*F)
-                F=F_T=None
+                Jint+=numpy.sum(F.T*F) #TODO
+                #F=F_T=None
+                F=None
         moRoccW=moRvirtW=None
         EMP2J-=2.*weightarray[i]*Jint*(cell.vol/ngs)**2.
     print "Took this long for J: ", time.time()-Jtime
@@ -353,13 +357,13 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
 
     return EMP2J
 
-cell=get_cell(10.26,'Si','diamond','gth-szv',10,'gth-pade',supercell=[1,1,1])
+cell=get_cell(10.26,'Si','diamond','gth-szv',15,'gth-pade',supercell=[1,1,1])
 #cell=get_cell(6.74,'C','diamond','gth-szv',10,'gth-pade',supercell=None)
 scf=get_scf(cell)
 mp2=LTSOSMP2(scf)
 mp2.optimization='Cython'
 mp2.lt_points=1
 t1=time.time()
-mp2.max_memory=1000
+mp2.max_memory=100
 mp2_energy=mp2.kernel()
 print "Took: ", time.time()-t1
