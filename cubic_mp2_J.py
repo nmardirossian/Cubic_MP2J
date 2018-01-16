@@ -201,8 +201,9 @@ def get_ao_batch(shell_data,max_mo_batch_size):
 
     return (shell_batch,ao_batch)
 
-def compute_fft(func,coulG,mesh,smallmesh):
+def compute_fft(inp,coulG,mesh,smallmesh):
 
+    func=inp.copy()
     func=pyfftw.interfaces.numpy_fft.rfftn(func.reshape(mesh),mesh,planner_effort='FFTW_MEASURE')
     func*=coulG.reshape(smallmesh)
     func=pyfftw.interfaces.numpy_fft.irfftn(func,mesh,planner_effort='FFTW_MEASURE').flatten()
@@ -234,7 +235,7 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
     (tauarray,weightarray,NLapPoints)=get_LT_data()
 
     #batching
-    (max_grid_batch_size,grid_batch_num,grid_batch)=get_batch(mp.max_memory,ngs,num_mat=5,override=0) #batching grid
+    (max_grid_batch_size,grid_batch_num,grid_batch)=get_batch(mp.max_memory,ngs,num_mat=3,override=0) #batching grid
     (max_mo_occ_batch_size,mo_occ_batch_num,mo_occ_batch)=get_batch(mp.max_memory,nocc,num_mat=2,override=0) #batching occ MOs
     (max_mo_virt_batch_size,mo_virt_batch_num,mo_virt_batch)=get_batch(mp.max_memory,nvirt,num_mat=2,override=0) #batching virt MOs
 
@@ -271,7 +272,7 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                 pylib.dot(moR_b.T[grid_batch[b1]:grid_batch[b1+1]],moR_b,alpha=1,c=g_o,beta=1) #[gbs x ngs]
                 moR_b=None
             #g_v=numpy.zeros((gbs,ngs),dtype='float64') #[gbs x ngs]
-            f=numpy.zeros((gbs,ngs),dtype='float64') #[gbs x ngs]
+            F=numpy.zeros((gbs,ngs),dtype='float64') #[gbs x ngs]
             for a1 in range(mo_virt_batch_num):
                 mbs=mo_virt_batch[a1+1]-mo_virt_batch[a1]
                 moR_b=numpy.zeros((mbs,ngs),dtype='float64') #[mbs x ngs]
@@ -283,22 +284,22 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                 aoR_b=mo_virt_b=None
                 #g_v+=numpy.dot(moR_b.T[grid_batch[b1]:grid_batch[b1+1]],moR_b) #[gbs x ngs]
                 #f+=numpy.dot(moR_b.T[grid_batch[b1]:grid_batch[b1+1]],moR_b) #[gbs x ngs]
-                pylib.dot(moR_b.T[grid_batch[b1]:grid_batch[b1+1]],moR_b,alpha=1,c=f,beta=1) #[gbs x ngs]
+                pylib.dot(moR_b.T[grid_batch[b1]:grid_batch[b1+1]],moR_b,alpha=1,c=F,beta=1) #[gbs x ngs]
                 moR_b=None
             #f=g_o*g_v #[gbs x ngs]
             #g_o=g_v=None
-            f*=g_o #[gbs x ngs]
+            F*=g_o #[gbs x ngs]
             g_o=None
             if mp.optimization=="Cython":
-                F=numpy.zeros((gbs,ngs),dtype='float64') #[gbs x ngs]
-                fft_cython.getJ(gbs,f,F,coulG,mesh,smallmesh)
+                #F=numpy.zeros((gbs,ngs),dtype='float64') #[gbs x ngs]
+                fft_cython.getJ(gbs,F,coulG,mesh,smallmesh)
             elif mp.optimization=="Python":
-                F=numpy.zeros((gbs,ngs),dtype='float64') #[gbs x ngs]
+                #F=numpy.zeros((gbs,ngs),dtype='float64') #[gbs x ngs]
                 for j in range(gbs):
-                    F[j]=compute_fft(f[j,:],coulG,mesh,smallmesh)
+                    F[j]=compute_fft(F[j],coulG,mesh,smallmesh)
             else:
                 raise RuntimeError('Only Cython and Python implemented!')
-            f=None
+            #f=None
             if grid_batch_num>1:
                 #F_T=numpy.zeros((ngs,gbs),dtype='float64') #[ngs x gbs]
                 for b2 in range(grid_batch_num):
@@ -318,7 +319,7 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                             pylib.dot(moR_b.T[grid_batch[b2]:grid_batch[b2+1]],moR_b,alpha=1,c=g_o_in,beta=1) #[gbs_in x ngs]
                             moR_b=None
                         #g_v_in=numpy.zeros((gbs_in,ngs),dtype='float64') #[gbs x ngs]
-                        f_in=numpy.zeros((gbs_in,ngs),dtype='float64') #[gbs x ngs]
+                        F_in=numpy.zeros((gbs_in,ngs),dtype='float64') #[gbs x ngs]
                         for a1 in range(mo_virt_batch_num):
                             mbs=mo_virt_batch[a1+1]-mo_virt_batch[a1]
                             moR_b=numpy.zeros((mbs,ngs),dtype='float64') #[mbs x ngs]
@@ -330,22 +331,22 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                             aoR_b=mo_virt_b=None
                             #g_v_in+=numpy.dot(moR_b.T[grid_batch[b2]:grid_batch[b2+1]],moR_b) #[gbs_in x ngs]
                             #f_in+=numpy.dot(moR_b.T[grid_batch[b2]:grid_batch[b2+1]],moR_b) #[gbs_in x ngs]
-                            pylib.dot(moR_b.T[grid_batch[b2]:grid_batch[b2+1]],moR_b,alpha=1,c=f_in,beta=1) #[gbs_in x ngs]
+                            pylib.dot(moR_b.T[grid_batch[b2]:grid_batch[b2+1]],moR_b,alpha=1,c=F_in,beta=1) #[gbs_in x ngs]
                             moR_b=None
                         #f_in=g_o_in*g_v_in #[gbs_in x ngs]
                         #g_o_in=g_v_in=None
-                        f_in*=g_o_in #[gbs_in x ngs]
+                        F_in*=g_o_in #[gbs_in x ngs]
                         g_o_in=None
                         if mp.optimization=="Cython":
-                            F_in=numpy.zeros((gbs_in,ngs),dtype='float64') #[gbs_in x ngs]
-                            fft_cython.getJ(gbs_in,f_in,F_in,coulG,mesh,smallmesh)
+                            #F_in=numpy.zeros((gbs_in,ngs),dtype='float64') #[gbs_in x ngs]
+                            fft_cython.getJ(gbs_in,F_in,coulG,mesh,smallmesh)
                         elif mp.optimization=="Python":
-                            F_in=numpy.zeros((gbs_in,ngs),dtype='float64') #[gbs_in x ngs]
+                            #F_in=numpy.zeros((gbs_in,ngs),dtype='float64') #[gbs_in x ngs]
                             for k in range(gbs_in):
-                                F_in[k]=compute_fft(f_in[k,:],coulG,mesh,smallmesh)
+                                F_in[k]=compute_fft(F_in[k],coulG,mesh,smallmesh)
                         else:
                             raise RuntimeError('Only Cython and Python implemented!')
-                        f_in=None
+                        #f_in=None
                         #F_T[grid_batch[b2]:grid_batch[b2+1]]=F_in[:,grid_batch[b1]:grid_batch[b1+1]]
                         #Jint+=numpy.sum(F[:,grid_batch[b2]:grid_batch[b2+1]]*F_in[:,grid_batch[b1]:grid_batch[b1+1]].T)
                         Jint+=numpy.einsum('ij,ji->',F[:,grid_batch[b2]:grid_batch[b2+1]],F_in[:,grid_batch[b1]:grid_batch[b1+1]])
