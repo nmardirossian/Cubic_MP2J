@@ -4,6 +4,7 @@ import pyfftw
 import time
 import ase
 import fft_cython
+import sys
 
 from pyscf.pbc import scf as pbchf
 from pyscf.pbc import gto as pbcgto
@@ -346,18 +347,18 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                             raise RuntimeError('Only Cython and Python implemented!')
                         f_in=None
                         #F_T[grid_batch[b2]:grid_batch[b2+1]]=F_in[:,grid_batch[b1]:grid_batch[b1+1]]
-                        #Jint+=numpy.sum(F[:,grid_batch[b2]:grid_batch[b2+1]]*F_in[:,grid_batch[b1]:grid_batch[b1+1]].T) #TODO
+                        #Jint+=numpy.sum(F[:,grid_batch[b2]:grid_batch[b2+1]]*F_in[:,grid_batch[b1]:grid_batch[b1+1]].T)
                         Jint+=numpy.einsum('ij,ji->',F[:,grid_batch[b2]:grid_batch[b2+1]],F_in[:,grid_batch[b1]:grid_batch[b1+1]])
                         F_in=None
                     else:
                         #F_T[grid_batch[b2]:grid_batch[b2+1]]=F[:,grid_batch[b1]:grid_batch[b1+1]]
-                        #Jint+=numpy.sum(F[:,grid_batch[b1]:grid_batch[b1+1]]*F[:,grid_batch[b1]:grid_batch[b1+1]].T) #TODO
+                        #Jint+=numpy.sum(F[:,grid_batch[b1]:grid_batch[b1+1]]*F[:,grid_batch[b1]:grid_batch[b1+1]].T)
                         Jint+=numpy.einsum('ij,ji->',F[:,grid_batch[b1]:grid_batch[b1+1]],F[:,grid_batch[b1]:grid_batch[b1+1]])
                 #Jint+=numpy.sum(F_T.T*F)
                 #F=F_T=None
                 F=None
             else:
-                #Jint+=numpy.sum(F.T*F) #TODO
+                #Jint+=numpy.sum(F.T*F)
                 Jint+=numpy.einsum('ij,ji->',F,F)
                 #F=F_T=None
                 F=None
