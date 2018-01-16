@@ -282,7 +282,7 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                 moR_b=None
             #f=g_o*g_v #[gbs x ngs]
             #g_o=g_v=None
-            f=g_o*f #[gbs x ngs]
+            f*=g_o #[gbs x ngs]
             g_o=None
             if mp.optimization=="Cython":
                 F=numpy.zeros((gbs,ngs),dtype='float64') #[gbs x ngs]
@@ -325,7 +325,7 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                             moR_b=None
                         #f_in=g_o_in*g_v_in #[gbs_in x ngs]
                         #g_o_in=g_v_in=None
-                        f_in=g_o_in*f_in #[gbs_in x ngs]
+                        f_in*=g_o_in #[gbs_in x ngs]
                         g_o_in=None
                         if mp.optimization=="Cython":
                             F_in=numpy.zeros((gbs_in,ngs),dtype='float64') #[gbs_in x ngs]
