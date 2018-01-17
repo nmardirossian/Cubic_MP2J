@@ -216,10 +216,9 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
     nocc=mp.nocc
     nvirt=nao-nocc
     ngs=mp.ngs
-    if mo_energy is None: mo_energy=mp.mo_energy #[nmo x 1]
+    if mo_energy is None: mo_energy=mp.mo_energy #[nmo]
     if mo_coeff is None: mo_coeff=mp.mo_coeff #[nao x nmo]
-    mo_energy=mo_energy.reshape(-1,1)
-    mo_coeff=mo_coeff.T #[nmo x nao]
+    mo_energy=mo_energy.reshape(1,-1)
 
     cell=mp._scf.cell
     mesh=cell.mesh
@@ -254,114 +253,83 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
     EMP2J=0.0
     for i in range(numpy.amin([NLapPoints,mp.lt_points])):
         Jint=0.0
-        mo_occ=mo_coeff[:nocc]*numpy.exp(-mo_energy[:nocc]*tauarray[i]/2.) #[nocc x nao]
-        mo_virt=mo_coeff[nocc:]*numpy.exp(mo_energy[nocc:]*tauarray[i]/2.) #[nvirt x nao]
+        mo_occ=mo_coeff[:,:nocc]*numpy.exp(-mo_energy[:,:nocc]*tauarray[i]/2.) #[nao x nocc]
+        mo_virt=mo_coeff[:,nocc:]*numpy.exp(mo_energy[:,nocc:]*tauarray[i]/2.) #[nao x nvirt]
         for b1 in range(grid_batch_num):
             gbs=grid_batch[b1+1]-grid_batch[b1]
             g_o=numpy.zeros((gbs,ngs),dtype='float64') #[gbs x ngs]
             for a1 in range(mo_occ_batch_num):
                 mbs=mo_occ_batch[a1+1]-mo_occ_batch[a1]
-                moR_b=numpy.zeros((mbs,ngs),dtype='float64') #[mbs x ngs]
+                moR_b=numpy.zeros((ngs,mbs),dtype='float64') #[ngs x mbs]
                 for a2 in range(len(shell_occ_batch)-1):
                     aoR_b=numint.eval_ao(cell,coords,shls_slice=(shell_occ_batch[a2],shell_occ_batch[a2+1])) #[ngs x shell_batch_size]
-                    mo_occ_b=mo_occ[mo_occ_batch[a1]:mo_occ_batch[a1+1],ao_occ_batch[a2]:ao_occ_batch[a2+1]] #[mbs x shell_batch_size]
-                    #moR_b+=numpy.dot(mo_occ_b,aoR_b.T) #[mbs x ngs]
-                    pylib.dot(mo_occ_b,aoR_b.T,alpha=1,c=moR_b,beta=1) #[mbs x ngs]
+                    mo_occ_b=mo_occ[ao_occ_batch[a2]:ao_occ_batch[a2+1],mo_occ_batch[a1]:mo_occ_batch[a1+1]] #[shell_batch_size x mbs]
+                    pylib.dot(aoR_b,mo_occ_b,alpha=1,c=moR_b,beta=1) #[ngs x mbs]
                 aoR_b=mo_occ_b=None
-                #g_o+=numpy.dot(moR_b.T[grid_batch[b1]:grid_batch[b1+1]],moR_b) #[gbs x ngs]
-                pylib.dot(moR_b.T[grid_batch[b1]:grid_batch[b1+1]],moR_b,alpha=1,c=g_o,beta=1) #[gbs x ngs]
+                pylib.dot(moR_b[grid_batch[b1]:grid_batch[b1+1]],moR_b.T,alpha=1,c=g_o,beta=1) #[gbs x ngs]
                 moR_b=None
-            #g_v=numpy.zeros((gbs,ngs),dtype='float64') #[gbs x ngs]
             F=numpy.zeros((gbs,ngs),dtype='float64') #[gbs x ngs]
             for a1 in range(mo_virt_batch_num):
                 mbs=mo_virt_batch[a1+1]-mo_virt_batch[a1]
-                moR_b=numpy.zeros((mbs,ngs),dtype='float64') #[mbs x ngs]
+                moR_b=numpy.zeros((ngs,mbs),dtype='float64') #[ngs x mbs]
                 for a2 in range(len(shell_virt_batch)-1):
                     aoR_b=numint.eval_ao(cell,coords,shls_slice=(shell_virt_batch[a2],shell_virt_batch[a2+1])) #[ngs x shell_batch_size]
-                    mo_virt_b=mo_virt[mo_virt_batch[a1]:mo_virt_batch[a1+1],ao_virt_batch[a2]:ao_virt_batch[a2+1]] #[mbs x shell_batch_size]
-                    #moR_b+=numpy.dot(mo_virt_b,aoR_b.T) #[mbs x ngs]
-                    pylib.dot(mo_virt_b,aoR_b.T,alpha=1,c=moR_b,beta=1) #[mbs x ngs]
+                    mo_virt_b=mo_virt[ao_virt_batch[a2]:ao_virt_batch[a2+1],mo_virt_batch[a1]:mo_virt_batch[a1+1]] #[shell_batch_size x mbs]
+                    pylib.dot(aoR_b,mo_virt_b,alpha=1,c=moR_b,beta=1) #[ngs x mbs]
                 aoR_b=mo_virt_b=None
-                #g_v+=numpy.dot(moR_b.T[grid_batch[b1]:grid_batch[b1+1]],moR_b) #[gbs x ngs]
-                #f+=numpy.dot(moR_b.T[grid_batch[b1]:grid_batch[b1+1]],moR_b) #[gbs x ngs]
-                pylib.dot(moR_b.T[grid_batch[b1]:grid_batch[b1+1]],moR_b,alpha=1,c=F,beta=1) #[gbs x ngs]
+                pylib.dot(moR_b[grid_batch[b1]:grid_batch[b1+1]],moR_b.T,alpha=1,c=F,beta=1) #[gbs x ngs]
                 moR_b=None
-            #f=g_o*g_v #[gbs x ngs]
-            #g_o=g_v=None
             F*=g_o #[gbs x ngs]
             g_o=None
             if mp.optimization=="Cython":
-                #F=numpy.zeros((gbs,ngs),dtype='float64') #[gbs x ngs]
                 fft_cython.getJ(gbs,F,coulG,mesh,smallmesh)
             elif mp.optimization=="Python":
-                #F=numpy.zeros((gbs,ngs),dtype='float64') #[gbs x ngs]
                 for j in range(gbs):
                     F[j]=compute_fft(F[j],coulG,mesh,smallmesh)
             else:
                 raise RuntimeError('Only Cython and Python implemented!')
-            #f=None
             if grid_batch_num>1:
-                #F_T=numpy.zeros((ngs,gbs),dtype='float64') #[ngs x gbs]
                 for b2 in range(grid_batch_num):
                     if b2!=b1:
                         gbs_in=grid_batch[b2+1]-grid_batch[b2]
-                        g_o_in=numpy.zeros((gbs_in,ngs),dtype='float64') #[gbs_in x ngs]
+                        g_o=numpy.zeros((gbs_in,ngs),dtype='float64') #[gbs_in x ngs]
                         for a1 in range(mo_occ_batch_num):
                             mbs=mo_occ_batch[a1+1]-mo_occ_batch[a1]
-                            moR_b=numpy.zeros((mbs,ngs),dtype='float64') #[mbs x ngs]
+                            moR_b=numpy.zeros((ngs,mbs),dtype='float64') #[ngs x mbs]
                             for a2 in range(len(shell_occ_batch)-1):
                                 aoR_b=numint.eval_ao(cell,coords,shls_slice=(shell_occ_batch[a2],shell_occ_batch[a2+1])) #[ngs x shell_batch_size]
-                                mo_occ_b=mo_occ[mo_occ_batch[a1]:mo_occ_batch[a1+1],ao_occ_batch[a2]:ao_occ_batch[a2+1]] #[mbs x shell_batch_size]
-                                #moR_b+=numpy.dot(mo_occ_b,aoR_b.T) #[mbs x ngs]
-                                pylib.dot(mo_occ_b,aoR_b.T,alpha=1,c=moR_b,beta=1) #[mbs x ngs]
+                                mo_occ_b=mo_occ[ao_occ_batch[a2]:ao_occ_batch[a2+1],mo_occ_batch[a1]:mo_occ_batch[a1+1]] #[shell_batch_size x mbs]
+                                pylib.dot(aoR_b,mo_occ_b,alpha=1,c=moR_b,beta=1) #[ngs x mbs]
                             aoR_b=mo_occ_b=None
-                            #g_o_in+=numpy.dot(moR_b.T[grid_batch[b2]:grid_batch[b2+1]],moR_b) #[gbs_in x ngs]
-                            pylib.dot(moR_b.T[grid_batch[b2]:grid_batch[b2+1]],moR_b,alpha=1,c=g_o_in,beta=1) #[gbs_in x ngs]
+                            pylib.dot(moR_b[grid_batch[b2]:grid_batch[b2+1]],moR_b.T,alpha=1,c=g_o,beta=1) #[gbs_in x ngs]
                             moR_b=None
-                        #g_v_in=numpy.zeros((gbs_in,ngs),dtype='float64') #[gbs x ngs]
-                        F_in=numpy.zeros((gbs_in,ngs),dtype='float64') #[gbs x ngs]
+                        F_in=numpy.zeros((gbs_in,ngs),dtype='float64') #[gbs_in x ngs]
                         for a1 in range(mo_virt_batch_num):
                             mbs=mo_virt_batch[a1+1]-mo_virt_batch[a1]
-                            moR_b=numpy.zeros((mbs,ngs),dtype='float64') #[mbs x ngs]
+                            moR_b=numpy.zeros((ngs,mbs),dtype='float64') #[ngs x mbs]
                             for a2 in range(len(shell_virt_batch)-1):
                                 aoR_b=numint.eval_ao(cell,coords,shls_slice=(shell_virt_batch[a2],shell_virt_batch[a2+1])) #[ngs x shell_batch_size]
-                                mo_virt_b=mo_virt[mo_virt_batch[a1]:mo_virt_batch[a1+1],ao_virt_batch[a2]:ao_virt_batch[a2+1]] #[mbs x shell_batch_size]
-                                #moR_b+=numpy.dot(mo_virt_b,aoR_b.T) #[mbs x ngs]
-                                pylib.dot(mo_virt_b,aoR_b.T,alpha=1,c=moR_b,beta=1) #[mbs x ngs]
+                                mo_virt_b=mo_virt[ao_virt_batch[a2]:ao_virt_batch[a2+1],mo_virt_batch[a1]:mo_virt_batch[a1+1]] #[shell_batch_size x mbs]
+                                pylib.dot(aoR_b,mo_virt_b,alpha=1,c=moR_b,beta=1) #[ngs x mbs]
                             aoR_b=mo_virt_b=None
-                            #g_v_in+=numpy.dot(moR_b.T[grid_batch[b2]:grid_batch[b2+1]],moR_b) #[gbs_in x ngs]
-                            #f_in+=numpy.dot(moR_b.T[grid_batch[b2]:grid_batch[b2+1]],moR_b) #[gbs_in x ngs]
-                            pylib.dot(moR_b.T[grid_batch[b2]:grid_batch[b2+1]],moR_b,alpha=1,c=F_in,beta=1) #[gbs_in x ngs]
+                            pylib.dot(moR_b[grid_batch[b2]:grid_batch[b2+1]],moR_b.T,alpha=1,c=F_in,beta=1) #[gbs_in x ngs]
                             moR_b=None
-                        #f_in=g_o_in*g_v_in #[gbs_in x ngs]
-                        #g_o_in=g_v_in=None
-                        F_in*=g_o_in #[gbs_in x ngs]
-                        g_o_in=None
+                        F_in*=g_o #[gbs_in x ngs]
+                        g_o=None
                         if mp.optimization=="Cython":
-                            #F_in=numpy.zeros((gbs_in,ngs),dtype='float64') #[gbs_in x ngs]
                             fft_cython.getJ(gbs_in,F_in,coulG,mesh,smallmesh)
                         elif mp.optimization=="Python":
-                            #F_in=numpy.zeros((gbs_in,ngs),dtype='float64') #[gbs_in x ngs]
                             for k in range(gbs_in):
                                 F_in[k]=compute_fft(F_in[k],coulG,mesh,smallmesh)
                         else:
                             raise RuntimeError('Only Cython and Python implemented!')
-                        #f_in=None
-                        #F_T[grid_batch[b2]:grid_batch[b2+1]]=F_in[:,grid_batch[b1]:grid_batch[b1+1]]
-                        #Jint+=numpy.sum(F[:,grid_batch[b2]:grid_batch[b2+1]]*F_in[:,grid_batch[b1]:grid_batch[b1+1]].T)
                         Jint+=numpy.einsum('ij,ji->',F[:,grid_batch[b2]:grid_batch[b2+1]],F_in[:,grid_batch[b1]:grid_batch[b1+1]])
                         F_in=None
                     else:
-                        #F_T[grid_batch[b2]:grid_batch[b2+1]]=F[:,grid_batch[b1]:grid_batch[b1+1]]
-                        #Jint+=numpy.sum(F[:,grid_batch[b1]:grid_batch[b1+1]]*F[:,grid_batch[b1]:grid_batch[b1+1]].T)
                         Jint+=numpy.einsum('ij,ji->',F[:,grid_batch[b1]:grid_batch[b1+1]],F[:,grid_batch[b1]:grid_batch[b1+1]])
-                #Jint+=numpy.sum(F_T.T*F)
-                #F=F_T=None
                 F=None
             else:
-                #Jint+=numpy.sum(F.T*F)
                 Jint+=numpy.einsum('ij,ji->',F,F)
-                #F=F_T=None
                 F=None
         moRoccW=moRvirtW=None
         EMP2J-=2.*weightarray[i]*Jint*(cell.vol/ngs)**2.
@@ -371,7 +339,6 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
     return EMP2J
 
 cell=get_cell(10.26,'Si','diamond','gth-szv',23,'gth-pade',supercell=[1,1,1])
-#cell=get_cell(6.74,'C','diamond','gth-szv',10,'gth-pade',supercell=None)
 scf=get_scf(cell)
 mp2=LTSOSMP2(scf)
 mp2.optimization='Cython'
