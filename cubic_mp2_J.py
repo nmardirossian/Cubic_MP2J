@@ -254,8 +254,8 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
     EMP2J=0.0
     for i in range(numpy.amin([NLapPoints,mp.lt_points])):
         Jint=0.0
-        mo_occ=mo_coeff[:nocc]*numpy.exp(-mo_energy[:nocc]*tauarray[i]/2.) #[nmo x nao]
-        mo_virt=mo_coeff[nocc:]*numpy.exp(mo_energy[nocc:]*tauarray[i]/2.) #[nmo x nao]
+        mo_occ=mo_coeff[:nocc]*numpy.exp(-mo_energy[:nocc]*tauarray[i]/2.) #[nocc x nao]
+        mo_virt=mo_coeff[nocc:]*numpy.exp(mo_energy[nocc:]*tauarray[i]/2.) #[nvirt x nao]
         for b1 in range(grid_batch_num):
             gbs=grid_batch[b1+1]-grid_batch[b1]
             g_o=numpy.zeros((gbs,ngs),dtype='float64') #[gbs x ngs]
@@ -279,7 +279,7 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                 for a2 in range(len(shell_virt_batch)-1):
                     aoR_b=numint.eval_ao(cell,coords,shls_slice=(shell_virt_batch[a2],shell_virt_batch[a2+1])) #[ngs x shell_batch_size]
                     mo_virt_b=mo_virt[mo_virt_batch[a1]:mo_virt_batch[a1+1],ao_virt_batch[a2]:ao_virt_batch[a2+1]] #[mbs x shell_batch_size]
-                    #moR_b+=numpy.dot(mo_virt_b,aoR_b.T) #[mbs x shell_batch_size]
+                    #moR_b+=numpy.dot(mo_virt_b,aoR_b.T) #[mbs x ngs]
                     pylib.dot(mo_virt_b,aoR_b.T,alpha=1,c=moR_b,beta=1) #[mbs x ngs]
                 aoR_b=mo_virt_b=None
                 #g_v+=numpy.dot(moR_b.T[grid_batch[b1]:grid_batch[b1+1]],moR_b) #[gbs x ngs]
@@ -370,13 +370,13 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
 
     return EMP2J
 
-cell=get_cell(10.26,'Si','diamond','gth-szv',15,'gth-pade',supercell=[1,1,1])
+cell=get_cell(10.26,'Si','diamond','gth-szv',23,'gth-pade',supercell=[1,1,1])
 #cell=get_cell(6.74,'C','diamond','gth-szv',10,'gth-pade',supercell=None)
 scf=get_scf(cell)
 mp2=LTSOSMP2(scf)
 mp2.optimization='Cython'
 mp2.lt_points=1
 t1=time.time()
-mp2.max_memory=200
+mp2.max_memory=8000
 mp2_energy=mp2.kernel()
 print "Took: ", time.time()-t1
