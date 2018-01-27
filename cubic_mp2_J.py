@@ -225,6 +225,9 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
     smallmesh=mesh.copy()
     smallmesh[-1]=int(numpy.floor(smallmesh[-1]/2.0))+1
 
+    print "mesh: ", mesh
+    print "smallmesh: ", smallmesh
+
     coulG=pbctools.get_coulG(cell,mesh=mesh) #[ngs]
     coulG=coulG.reshape(mesh) #[mesh[0] x mesh[1] x mesh[2]]
     coulG=coulG[:,:,:smallmesh[-1]].reshape([numpy.product(smallmesh),]) #[ngssmall]
@@ -338,12 +341,12 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
 
     return EMP2J
 
-cell=get_cell(10.26,'Si','diamond','gth-szv',23,'gth-pade',supercell=[1,1,1])
+cell=get_cell(10.26,'Si','diamond','gth-szv',28,'gth-pade',supercell=[1,1,1])
 scf=get_scf(cell)
 mp2=LTSOSMP2(scf)
 mp2.optimization='Cython'
 mp2.lt_points=1
 t1=time.time()
-mp2.max_memory=8000
+mp2.max_memory=14000
 mp2_energy=mp2.kernel()
 print "Took: ", time.time()-t1
