@@ -262,6 +262,8 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
         mo_occ=mo_coeff[:,:nocc]*numpy.exp(-mo_energy[:,:nocc]*tauarray[i]/2.) #[nao x nocc]
         mo_virt=mo_coeff[:,nocc:]*numpy.exp(mo_energy[:,nocc:]*tauarray[i]/2.) #[nao x nvirt]
         for b1 in range(grid_batch_num):
+
+            t1=time.time()
             gbs=grid_batch[b1+1]-grid_batch[b1]
             g_o=numpy.zeros((gbs,ngs),dtype='float64') #[gbs x ngs]
             for a1 in range(mo_occ_batch_num):
@@ -287,18 +289,26 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                 moR_b=None
             F*=g_o #[gbs x ngs]
             g_o=None
+            print "Green's function formation took: ", time.time()-t1
+
             if mp.optimization=="Cython":
 
+                t1=time.time()
                 Fpad=numpy.zeros(([gbs]+list(largemesh)),dtype='float64')
                 Fpad[:,:,:,:mesh[-1]]=F.reshape([gbs]+list(mesh))
                 F=Fpad.reshape([gbs,numpy.product(largemesh)])
                 Fpad=None
+                print "Pre-padding took: ", time.time()-t1
 
+                t1=time.time()
                 fft_cython.getJ(gbs,F,coulG,mesh,smallmesh,largemesh)
+                print "Cython took: ", time.time()-t1
 
+                t1=time.time()
                 F=F.reshape([gbs]+list(largemesh))
                 F=F[:,:,:,:mesh[-1]]
                 F=F.reshape([gbs,numpy.product(mesh)])
+                print "Post-padding took: ", time.time()-t1
 
             elif mp.optimization=="Python":
                 for j in range(gbs):
@@ -308,6 +318,8 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
             if grid_batch_num>1:
                 for b2 in range(grid_batch_num):
                     if b2!=b1:
+
+                        t1=time.time()
                         gbs_in=grid_batch[b2+1]-grid_batch[b2]
                         g_o=numpy.zeros((gbs_in,ngs),dtype='float64') #[gbs_in x ngs]
                         for a1 in range(mo_occ_batch_num):
@@ -333,31 +345,45 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                             moR_b=None
                         F_in*=g_o #[gbs_in x ngs]
                         g_o=None
+                        print "Green's function formation took: ", time.time()-t1
+
                         if mp.optimization=="Cython":
 
+                            t1=time.time()
                             Fpad=numpy.zeros(([gbs_in]+list(largemesh)),dtype='float64')
                             Fpad[:,:,:,:mesh[-1]]=F_in.reshape([gbs_in]+list(mesh))
                             F_in=Fpad.reshape([gbs_in,numpy.product(largemesh)])
                             Fpad=None
+                            print "Pre-padding took: ", time.time()-t1
 
+                            t1=time.time()
                             fft_cython.getJ(gbs_in,F_in,coulG,mesh,smallmesh,largemesh)
+                            print "Cython took: ", time.time()-t1
 
+                            t1=time.time()
                             F_in=F_in.reshape([gbs_in]+list(largemesh))
                             F_in=F_in[:,:,:,:mesh[-1]]
                             F_in=F_in.reshape([gbs_in,numpy.product(mesh)])
+                            print "Post-padding took: ", time.time()-t1
 
                         elif mp.optimization=="Python":
                             for k in range(gbs_in):
                                 F_in[k]=compute_fft(F_in[k],coulG,mesh,smallmesh)
                         else:
                             raise RuntimeError('Only Cython and Python implemented!')
+                        t1=time.time()
                         Jint+=numpy.einsum('ij,ji->',F[:,grid_batch[b2]:grid_batch[b2+1]],F_in[:,grid_batch[b1]:grid_batch[b1+1]])
+                        print "Summing took: ", time.time()-t1
                         F_in=None
                     else:
+                        t1=time.time()
                         Jint+=numpy.einsum('ij,ji->',F[:,grid_batch[b1]:grid_batch[b1+1]],F[:,grid_batch[b1]:grid_batch[b1+1]])
+                        print "Summing took: ", time.time()-t1
                 F=None
             else:
+                t1=time.time()
                 Jint+=numpy.einsum('ij,ji->',F,F)
+                print "Summing took: ", time.time()-t1
                 F=None
         moRoccW=moRvirtW=None
         EMP2J-=2.*weightarray[i]*Jint*(cell.vol/ngs)**2.
@@ -366,12 +392,12 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
 
     return EMP2J
 
-cell=get_cell(10.26,'Si','diamond','gth-szv',28,'gth-pade',supercell=[1,1,1])
+cell=get_cell(10.26,'Si','diamond','gth-szv',39,'gth-pade',supercell=[1,1,1])
 scf=get_scf(cell)
 mp2=LTSOSMP2(scf)
 mp2.optimization='Cython'
 mp2.lt_points=1
 t1=time.time()
-mp2.max_memory=14000
+mp2.max_memory=100000
 mp2_energy=mp2.kernel()
 print "Took: ", time.time()-t1
