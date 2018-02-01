@@ -222,18 +222,18 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
 
     cell=mp._scf.cell
     mesh=cell.mesh
-    smallmesh=mesh.copy()
-    smallmesh[-1]=int(numpy.floor(smallmesh[-1]/2.0))+1
-    largemesh=mesh.copy()
-    largemesh[-1]=largemesh[-1]+(2-largemesh[-1]%2)
+#    smallmesh=mesh.copy()
+#    smallmesh[-1]=int(numpy.floor(smallmesh[-1]/2.0))+1
+#    largemesh=mesh.copy()
+#    largemesh[-1]=largemesh[-1]+(2-largemesh[-1]%2)
 
     print "mesh: ", mesh
-    print "smallmesh: ", smallmesh
-    print "largemesh: ", largemesh
+#    print "smallmesh: ", smallmesh
+#    print "largemesh: ", largemesh
 
     coulG=pbctools.get_coulG(cell,mesh=mesh) #[ngs]
-    coulG=coulG.reshape(mesh) #[mesh[0] x mesh[1] x mesh[2]]
-    coulG=coulG[:,:,:smallmesh[-1]].reshape([numpy.product(smallmesh),]) #[ngssmall]
+#    coulG=coulG.reshape(mesh) #[mesh[0] x mesh[1] x mesh[2]]
+#    coulG=coulG[:,:,:smallmesh[-1]].reshape([numpy.product(smallmesh),]) #[ngssmall]
 
     coords=cell.gen_uniform_grids(mesh=mesh) #[ngs x 3]
 
