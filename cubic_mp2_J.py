@@ -201,12 +201,12 @@ def get_ao_batch(shell_data,max_mo_batch_size):
 
     return (shell_batch,ao_batch)
 
-def compute_fft(inp,coulG,mesh,smallmesh):
+def compute_fft(inp,coulG,mesh):
 
     func=inp.copy()
-    func=pyfftw.interfaces.numpy_fft.rfftn(func.reshape(mesh),mesh,planner_effort='FFTW_MEASURE')
-    func*=coulG.reshape(smallmesh)
-    func=pyfftw.interfaces.numpy_fft.irfftn(func,mesh,planner_effort='FFTW_MEASURE').flatten()
+    func=pyfftw.interfaces.numpy_fft.fftn(func.reshape(mesh),mesh,planner_effort='FFTW_MEASURE')
+    func*=coulG.reshape(mesh)
+    func=pyfftw.interfaces.numpy_fft.ifftn(func,mesh,planner_effort='FFTW_MEASURE').flatten()
 
     return func
 
@@ -222,18 +222,10 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
 
     cell=mp._scf.cell
     mesh=cell.mesh
-#    smallmesh=mesh.copy()
-#    smallmesh[-1]=int(numpy.floor(smallmesh[-1]/2.0))+1
-#    largemesh=mesh.copy()
-#    largemesh[-1]=largemesh[-1]+(2-largemesh[-1]%2)
 
     print "mesh: ", mesh
-#    print "smallmesh: ", smallmesh
-#    print "largemesh: ", largemesh
 
     coulG=pbctools.get_coulG(cell,mesh=mesh) #[ngs]
-#    coulG=coulG.reshape(mesh) #[mesh[0] x mesh[1] x mesh[2]]
-#    coulG=coulG[:,:,:smallmesh[-1]].reshape([numpy.product(smallmesh),]) #[ngssmall]
 
     coords=cell.gen_uniform_grids(mesh=mesh) #[ngs x 3]
 
@@ -294,25 +286,14 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
             if mp.optimization=="Cython":
 
                 t1=time.time()
-                Fpad=numpy.zeros(([gbs]+list(largemesh)),dtype='float64')
-                Fpad[:,:,:,:mesh[-1]]=F.reshape([gbs]+list(mesh))
-                F=Fpad.reshape([gbs,numpy.product(largemesh)])
-                Fpad=None
-                print "Pre-padding took: ", time.time()-t1
-
-                t1=time.time()
-                fft_cython.getJ(gbs,F,coulG,mesh,smallmesh,largemesh)
+                F=F.astype(dtype='complex128',order='C')
+                fft_cython.getJ(gbs,F,coulG,mesh)
+                F=F.astype(dtype='float64',order='C')
                 print "Cython took: ", time.time()-t1
-
-                t1=time.time()
-                F=F.reshape([gbs]+list(largemesh))
-                F=F[:,:,:,:mesh[-1]]
-                F=F.reshape([gbs,numpy.product(mesh)])
-                print "Post-padding took: ", time.time()-t1
 
             elif mp.optimization=="Python":
                 for j in range(gbs):
-                    F[j]=compute_fft(F[j],coulG,mesh,smallmesh)
+                    F[j]=compute_fft(F[j],coulG,mesh)
             else:
                 raise RuntimeError('Only Cython and Python implemented!')
             if grid_batch_num>1:
@@ -350,25 +331,14 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                         if mp.optimization=="Cython":
 
                             t1=time.time()
-                            Fpad=numpy.zeros(([gbs_in]+list(largemesh)),dtype='float64')
-                            Fpad[:,:,:,:mesh[-1]]=F_in.reshape([gbs_in]+list(mesh))
-                            F_in=Fpad.reshape([gbs_in,numpy.product(largemesh)])
-                            Fpad=None
-                            print "Pre-padding took: ", time.time()-t1
-
-                            t1=time.time()
-                            fft_cython.getJ(gbs_in,F_in,coulG,mesh,smallmesh,largemesh)
+                            F_in=F_in.astype(dtype='complex128',order='C')
+                            fft_cython.getJ(gbs_in,F_in,coulG,mesh)
+                            F_in=F_in.astype(dtype='float64',order='C')
                             print "Cython took: ", time.time()-t1
-
-                            t1=time.time()
-                            F_in=F_in.reshape([gbs_in]+list(largemesh))
-                            F_in=F_in[:,:,:,:mesh[-1]]
-                            F_in=F_in.reshape([gbs_in,numpy.product(mesh)])
-                            print "Post-padding took: ", time.time()-t1
 
                         elif mp.optimization=="Python":
                             for k in range(gbs_in):
-                                F_in[k]=compute_fft(F_in[k],coulG,mesh,smallmesh)
+                                F_in[k]=compute_fft(F_in[k],coulG,mesh)
                         else:
                             raise RuntimeError('Only Cython and Python implemented!')
                         t1=time.time()
