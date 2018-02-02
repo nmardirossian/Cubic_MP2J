@@ -224,12 +224,9 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
     mesh=cell.mesh
     smallmesh=mesh.copy()
     smallmesh[-1]=int(numpy.floor(smallmesh[-1]/2.0))+1
-    largemesh=mesh.copy()
-    largemesh[-1]=largemesh[-1]+(2-largemesh[-1]%2)
 
     print "mesh: ", mesh
     print "smallmesh: ", smallmesh
-    print "largemesh: ", largemesh
 
     coulG=pbctools.get_coulG(cell,mesh=mesh) #[ngs]
     coulG=coulG.reshape(mesh) #[mesh[0] x mesh[1] x mesh[2]]
@@ -294,21 +291,8 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
             if mp.optimization=="Cython":
 
                 t1=time.time()
-                Fpad=numpy.zeros(([gbs]+list(largemesh)),dtype='float64')
-                Fpad[:,:,:,:mesh[-1]]=F.reshape([gbs]+list(mesh))
-                F=Fpad.reshape([gbs,numpy.product(largemesh)])
-                Fpad=None
-                print "Pre-padding took: ", time.time()-t1
-
-                t1=time.time()
-                fft_cython.getJ(gbs,F,coulG,mesh,smallmesh,largemesh)
+                fft_cython.getJ(gbs,F,coulG,mesh,smallmesh)
                 print "Cython took: ", time.time()-t1
-
-                t1=time.time()
-                F=F.reshape([gbs]+list(largemesh))
-                F=F[:,:,:,:mesh[-1]]
-                F=F.reshape([gbs,numpy.product(mesh)])
-                print "Post-padding took: ", time.time()-t1
 
             elif mp.optimization=="Python":
                 for j in range(gbs):
@@ -350,21 +334,8 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                         if mp.optimization=="Cython":
 
                             t1=time.time()
-                            Fpad=numpy.zeros(([gbs_in]+list(largemesh)),dtype='float64')
-                            Fpad[:,:,:,:mesh[-1]]=F_in.reshape([gbs_in]+list(mesh))
-                            F_in=Fpad.reshape([gbs_in,numpy.product(largemesh)])
-                            Fpad=None
-                            print "Pre-padding took: ", time.time()-t1
-
-                            t1=time.time()
-                            fft_cython.getJ(gbs_in,F_in,coulG,mesh,smallmesh,largemesh)
+                            fft_cython.getJ(gbs_in,F_in,coulG,mesh,smallmesh)
                             print "Cython took: ", time.time()-t1
-
-                            t1=time.time()
-                            F_in=F_in.reshape([gbs_in]+list(largemesh))
-                            F_in=F_in[:,:,:,:mesh[-1]]
-                            F_in=F_in.reshape([gbs_in,numpy.product(mesh)])
-                            print "Post-padding took: ", time.time()-t1
 
                         elif mp.optimization=="Python":
                             for k in range(gbs_in):
@@ -392,7 +363,8 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
 
     return EMP2J
 
-cell=get_cell(10.26,'Si','diamond','gth-szv',39,'gth-pade',supercell=[1,1,1])
+mesh_val=int(sys.argv[1])
+cell=get_cell(10.26,'Si','diamond','gth-szv',mesh_val,'gth-pade',supercell=[1,1,1])
 scf=get_scf(cell)
 mp2=LTSOSMP2(scf)
 mp2.optimization='Cython'
