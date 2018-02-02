@@ -295,8 +295,12 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                 print "Cython took: ", time.time()-t1
 
             elif mp.optimization=="Python":
+
+                t1=time.time()
                 for j in range(gbs):
                     F[j]=compute_fft(F[j],coulG,mesh,smallmesh)
+                print "Python took: ", time.time()-t1
+
             else:
                 raise RuntimeError('Only Cython and Python implemented!')
             if grid_batch_num>1:
@@ -338,23 +342,61 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                             print "Cython took: ", time.time()-t1
 
                         elif mp.optimization=="Python":
+
+                            t1=time.time()
                             for k in range(gbs_in):
                                 F_in[k]=compute_fft(F_in[k],coulG,mesh,smallmesh)
+                            print "Python took: ", time.time()-t1
+
                         else:
                             raise RuntimeError('Only Cython and Python implemented!')
-                        t1=time.time()
-                        Jint+=numpy.einsum('ij,ji->',F[:,grid_batch[b2]:grid_batch[b2+1]],F_in[:,grid_batch[b1]:grid_batch[b1+1]])
-                        print "Summing took: ", time.time()-t1
+
+                        if mp.optimization=="Cython":
+
+                            t1=time.time()
+                            Jint+=fft_cython.sumtrans(gbs,gbs_in,F[:,grid_batch[b2]:grid_batch[b2+1]],F_in[:,grid_batch[b1]:grid_batch[b1+1]],mesh)
+                            print "Cython summing took: ", time.time()-t1
+
+                        elif mp.optimization=="Python":
+
+                            t1=time.time()
+                            Jint+=numpy.einsum('ij,ji->',F[:,grid_batch[b2]:grid_batch[b2+1]],F_in[:,grid_batch[b1]:grid_batch[b1+1]])
+                            print "Python summing took: ", time.time()-t1
+
+                        else:
+                            raise RuntimeError('Only Cython and Python implemented!')
                         F_in=None
                     else:
-                        t1=time.time()
-                        Jint+=numpy.einsum('ij,ji->',F[:,grid_batch[b1]:grid_batch[b1+1]],F[:,grid_batch[b1]:grid_batch[b1+1]])
-                        print "Summing took: ", time.time()-t1
+                        if mp.optimization=="Cython":
+
+                            t1=time.time()
+                            Jint+=fft_cython.sumtrans(gbs,gbs,F[:,grid_batch[b1]:grid_batch[b1+1]],F[:,grid_batch[b1]:grid_batch[b1+1]],mesh)
+                            print "Cython summing took: ", time.time()-t1
+
+                        elif mp.optimization=="Python":
+
+                            t1=time.time()
+                            Jint+=numpy.einsum('ij,ji->',F[:,grid_batch[b1]:grid_batch[b1+1]],F[:,grid_batch[b1]:grid_batch[b1+1]])
+                            print "Python summing took: ", time.time()-t1
+
+                        else:
+                            raise RuntimeError('Only Cython and Python implemented!')
                 F=None
             else:
-                t1=time.time()
-                Jint+=numpy.einsum('ij,ji->',F,F)
-                print "Summing took: ", time.time()-t1
+                if mp.optimization=="Cython":
+
+                    t1=time.time()
+                    Jint+=fft_cython.sumtrans(ngs,ngs,F,F,mesh)
+                    print "Cython summing took: ", time.time()-t1
+
+                elif mp.optimization=="Python":
+
+                    t1=time.time()
+                    Jint+=numpy.einsum('ij,ji->',F,F)
+                    print "Python summing took: ", time.time()-t1
+
+                else:
+                    raise RuntimeError('Only Cython and Python implemented!')
                 F=None
         moRoccW=moRvirtW=None
         EMP2J-=2.*weightarray[i]*Jint*(cell.vol/ngs)**2.
@@ -370,6 +412,6 @@ mp2=LTSOSMP2(scf)
 mp2.optimization='Cython'
 mp2.lt_points=1
 t1=time.time()
-mp2.max_memory=100000
+mp2.max_memory=500000
 mp2_energy=mp2.kernel()
 print "Took: ", time.time()-t1

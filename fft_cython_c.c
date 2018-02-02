@@ -43,3 +43,19 @@ void getJ_c(long int batch, double* F, double* coulGsmall, long int* mesh, long 
 
     return;
 }
+
+double sumtrans_c(long int dim1, long int dim2, double* F1, double* F2, long int* mesh){
+
+    long int j, l;
+    double sum=0.0;
+    long int ngs=mesh[0]*mesh[1]*mesh[2];
+
+    #pragma omp parallel for reduction (+:sum)
+    for (j=0; j<dim1; ++j){
+        for (l=0; l<dim2; ++l){
+            sum=sum+F1[j*ngs+l]*F2[l*ngs+j];
+        }
+    }
+
+    return sum;
+}
