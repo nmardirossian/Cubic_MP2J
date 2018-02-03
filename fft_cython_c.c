@@ -20,7 +20,7 @@ void getJ_c(long int batch, double* F, double* coulGsmall, long int* mesh, long 
     fftw_plan planfft = fftw_plan_dft_r2c_3d(mesh[0],mesh[1],mesh[2],signalfft,resultfft,FFTW_MEASURE);
     fftw_plan planifft = fftw_plan_dft_c2r_3d(mesh[0],mesh[1],mesh[2],resultfft,signalfft,FFTW_MEASURE);
 
-    #pragma omp parallel private(signalfft,resultfft,l)
+    #pragma omp parallel private(signalfft,resultfft,j,l)
     #pragma omp for
     for (j=0; j<batch; ++j){
         double *signalfft=(double*) &F[j*ngs];
@@ -52,10 +52,31 @@ double sumtrans_c(long int dim1, long int dim2, double* F1, double* F2, long int
 
     #pragma omp parallel for reduction (+:sum)
     for (j=0; j<dim1; ++j){
+        double insum=0.0;
         for (l=0; l<dim2; ++l){
-            sum=sum+F1[j*ngs+l]*F2[l*ngs+j];
+            insum=insum+F1[j*ngs+l]*F2[l*ngs+j];
         }
+        sum=sum+insum;
     }
 
     return sum;
+}
+
+void mult_c(long int dim1, long int dim2, double* F1, double* F2){
+
+    long int j, l;
+    double *mat1;
+    double *mat2;
+
+    #pragma omp parallel private(mat1,mat2,j,l)
+    #pragma omp for
+    for (j=0; j<dim1; ++j){
+        double *mat1=(double*) &F1[j*dim2];
+        double *mat2=(double*) &F2[j*dim2];
+        for (l=0; l<dim2; ++l){
+            mat1[l]=mat1[l]*mat2[l];
+        }
+    }
+
+    return;
 }
