@@ -90,6 +90,7 @@ class LTSOSMP2(pylib.StreamObject):
         self.verbose=self.mol.verbose
         self.stdout=self.mol.stdout
         self.max_memory=scf.max_memory
+        self.max_disk=scf.max_memory
         self.optimization='Cython'
         self.lt_points=7
 
@@ -237,7 +238,8 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
     (tauarray,weightarray,NLapPoints)=get_LT_data()
 
     #batching
-    (max_grid_batch_size,grid_batch_num,grid_batch)=get_batch(mp.max_memory,ngs,num_mat=3,override=0) #batching grid
+    (max_grid_batch_size,grid_batch_num,grid_batch)=get_batch(mp.max_memory,ngs,num_mat=3,override=0) #batching grid (mem)
+    (max_grid_batch_size_disk,grid_batch_num_disk,grid_batch_disk)=get_batch(mp.max_disk,ngs,num_mat=3,override=0) #batching grid (disk)
     (max_mo_occ_batch_size,mo_occ_batch_num,mo_occ_batch)=get_batch(mp.max_memory,nocc,num_mat=2,override=0) #batching occ MOs
     (max_mo_virt_batch_size,mo_virt_batch_num,mo_virt_batch)=get_batch(mp.max_memory,nvirt,num_mat=2,override=0) #batching virt MOs
 
@@ -421,5 +423,6 @@ mp2.optimization='Cython'
 mp2.lt_points=1
 t1=time.time()
 mp2.max_memory=500000
+mp2.max_memory=1000000
 mp2_energy=mp2.kernel()
 print "MP2 took: ", time.time()-t1
