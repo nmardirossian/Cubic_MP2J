@@ -262,6 +262,7 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
         for c1 in range(grid_batch_num_disk):
             gbsd=grid_batch_disk[c1+1]-grid_batch_disk[c1]
             (max_grid_batch_size,grid_batch_num,grid_batch)=get_batch(mp.max_memory,gbsd,num_mat=3,override=0) #batching grid (mem)
+            grid_batch_orig=grid_batch
             grid_batch=tuple(numpy.array(list(grid_batch))+grid_batch_disk[c1])
             if grid_batch_num>1:
                 F_h5py=h5py.File("F_h5py.hdf5","w")
@@ -328,15 +329,17 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                     raise RuntimeError('Only Cython and Python implemented!')
                 print "FFT took: ", time.time()-t1 #TIMING
                 if grid_batch_num>1:
-                    F_h5py_mat[grid_batch[b1]:grid_batch[b1+1]]=F
+                    F_h5py_mat[grid_batch_orig[b1]:grid_batch_orig[b1+1]]=F
                     F=None
             if grid_batch_num>1:
                 F_h5py.close()
+                F_h5py_mat=None
             if grid_batch_num_disk>1:
                 for c2 in range(grid_batch_num_disk):
                     if c2!=c1:
                         gbsd_in=grid_batch_disk[c2+1]-grid_batch_disk[c2]
                         (max_grid_batch_size_in,grid_batch_num_in,grid_batch_in)=get_batch(mp.max_memory,gbsd_in,num_mat=3,override=0) #batching grid (mem)
+                        grid_batch_orig_in=grid_batch_in
                         grid_batch_in=tuple(numpy.array(list(grid_batch_in))+grid_batch_disk[c2])
                         if grid_batch_num_in>1:
                             F_in_h5py=h5py.File("F_in_h5py.hdf5","w")
@@ -403,13 +406,13 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                                 raise RuntimeError('Only Cython and Python implemented!')
                             print "FFT took: ", time.time()-t1 #TIMING
                             if grid_batch_num_in>1:
-                                F_in_h5py_mat[grid_batch_in[b2]:grid_batch_in[b2+1]]=F_in
+                                F_in_h5py_mat[grid_batch_orig_in[b2]:grid_batch_orig_in[b2+1]]=F_in
                                 F_in=None
                         if grid_batch_num_in>1:
                             F_in_h5py.close()
+                            F_in_h5py_mat=None
                         t1=time.time() #TIMING
                         if (grid_batch_num>1 and grid_batch_num_in>1):
-                            print "SHOULD CRASH 1"
                             F_h5py=h5py.File("F_h5py.hdf5",'r')
                             F_in_h5py=h5py.File("F_in_h5py.hdf5",'r')
                             F1=F_h5py["F_h5py"][:,grid_batch_disk[c2]:grid_batch_disk[c2+1]]
