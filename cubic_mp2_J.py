@@ -409,8 +409,11 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                             F_in_h5py.close()
                         t1=time.time() #TIMING
                         if (grid_batch_num>1 and grid_batch_num_in>1):
-                            F1=F_h5py_mat[:,grid_batch_disk[c2]:grid_batch_disk[c2+1]]
-                            F2=F_in_h5py_mat[:,grid_batch_disk[c1]:grid_batch_disk[c1+1]]
+                            print "SHOULD CRASH 1"
+                            F_h5py=h5py.File("F_h5py.hdf5",'r')
+                            F_in_h5py=h5py.File("F_in_h5py.hdf5",'r')
+                            F1=F_h5py["F_h5py"][:,grid_batch_disk[c2]:grid_batch_disk[c2+1]]
+                            F2=F_in_h5py["F_in_h5py"][:,grid_batch_disk[c1]:grid_batch_disk[c1+1]]
                             if mp.optimization=="Cython":
                                 Jint+=fft_cython.sumtrans(gbsd,gbsd_in,gbsd_in,gbsd,F1,F2)
                             elif mp.optimization=="Python":
@@ -419,8 +422,11 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                                 raise RuntimeError('Only Cython and Python implemented!')
                             F1=None
                             F2=None
+                            F_h5py.close()
+                            F_in_h5py.close()
                         elif (grid_batch_num>1 and grid_batch_num_in==1):
-                            F1=F_h5py_mat[:,grid_batch_disk[c2]:grid_batch_disk[c2+1]]
+                            F_h5py=h5py.File("F_h5py.hdf5",'r')
+                            F1=F_h5py["F_h5py"][:,grid_batch_disk[c2]:grid_batch_disk[c2+1]]
                             if mp.optimization=="Cython":
                                 Jint+=fft_cython.sumtrans(gbsd,gbsd_in,gbsd_in,ngs,F1,F_in[:,grid_batch_disk[c1]:grid_batch_disk[c1+1]])
                             elif mp.optimization=="Python":
@@ -428,8 +434,10 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                             else:
                                 raise RuntimeError('Only Cython and Python implemented!')
                             F1=None
+                            F_h5py.close()
                         elif (grid_batch_num==1 and grid_batch_num_in>1):
-                            F2=F_in_h5py_mat[:,grid_batch_disk[c1]:grid_batch_disk[c1+1]]
+                            F_in_h5py=h5py.File("F_in_h5py.hdf5",'r')
+                            F2=F_in_h5py["F_in_h5py"][:,grid_batch_disk[c1]:grid_batch_disk[c1+1]]
                             if mp.optimization=="Cython":
                                 Jint+=fft_cython.sumtrans(gbsd,gbsd_in,ngs,gbsd,F[:,grid_batch_disk[c2]:grid_batch_disk[c2+1]],F2)
                             elif mp.optimization=="Python":
@@ -437,6 +445,7 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                             else:
                                 raise RuntimeError('Only Cython and Python implemented!')
                             F2=None
+                            F_in_h5py.close()
                         else:
                             if mp.optimization=="Cython":
                                 Jint+=fft_cython.sumtrans(gbsd,gbsd_in,ngs,ngs,F[:,grid_batch_disk[c2]:grid_batch_disk[c2+1]],F_in[:,grid_batch_disk[c1]:grid_batch_disk[c1+1]])
