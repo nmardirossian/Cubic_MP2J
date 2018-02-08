@@ -6,6 +6,7 @@ import time
 import ase
 import fft_cython
 import sys
+import os
 
 from pyscf.pbc import scf as pbchf
 from pyscf.pbc import gto as pbcgto
@@ -254,6 +255,13 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
     if mo_virt_batch_num>1:
         print "Splitting the virtual MOs into ", mo_virt_batch_num, " batches of max size ", max_mo_virt_batch_size
 
+    try:
+        scratchdir=os.environ['PYSCF_TMPDIR']
+    except KeyError:
+        scratchdir=''
+        print "SCRATCH DIRECTORY NOT SET. WRITING TO CWD!"
+    ts=time.strftime("%Y%m%d%H%M%S")
+
     EMP2J=0.0
     for i in range(numpy.amin([NLapPoints,mp.lt_points])):
         Jint=0.0
@@ -265,7 +273,7 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
             grid_batch_orig=grid_batch
             grid_batch=tuple(numpy.array(list(grid_batch))+grid_batch_disk[c1])
             if grid_batch_num>1:
-                F_h5py=h5py.File("F_h5py.hdf5","w")
+                F_h5py=h5py.File(scratchdir+"/F_h5py_"+ts+".hdf5","w")
                 F_h5py_mat=F_h5py.create_dataset("F_h5py",(gbsd,ngs),dtype='float64')
                 print "Splitting the grid into ", grid_batch_num, " batches of max size (mem) ", max_grid_batch_size
             for b1 in range(grid_batch_num):
@@ -342,7 +350,7 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                         grid_batch_orig_in=grid_batch_in
                         grid_batch_in=tuple(numpy.array(list(grid_batch_in))+grid_batch_disk[c2])
                         if grid_batch_num_in>1:
-                            F_in_h5py=h5py.File("F_in_h5py.hdf5","w")
+                            F_in_h5py=h5py.File(scratchdir+"/F_in_h5py_"+ts+".hdf5","w")
                             F_in_h5py_mat=F_in_h5py.create_dataset("F_in_h5py",(gbsd_in,ngs),dtype='float64')
                             print "Splitting the grid into ", grid_batch_num_in, " batches of max size (mem) ", max_grid_batch_size_in
                         for b2 in range(grid_batch_num_in):
@@ -413,8 +421,8 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                             F_in_h5py_mat=None
                         t1=time.time() #TIMING
                         if (grid_batch_num>1 and grid_batch_num_in>1):
-                            F_h5py=h5py.File("F_h5py.hdf5",'r')
-                            F_in_h5py=h5py.File("F_in_h5py.hdf5",'r')
+                            F_h5py=h5py.File(scratchdir+"/F_h5py_"+ts+".hdf5",'r')
+                            F_in_h5py=h5py.File(scratchdir+"/F_in_h5py_"+ts+".hdf5",'r')
                             F1=F_h5py["F_h5py"][:,grid_batch_disk[c2]:grid_batch_disk[c2+1]]
                             F2=F_in_h5py["F_in_h5py"][:,grid_batch_disk[c1]:grid_batch_disk[c1+1]]
                             if mp.optimization=="Cython":
@@ -428,7 +436,7 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                             F_h5py.close()
                             F_in_h5py.close()
                         elif (grid_batch_num>1 and grid_batch_num_in==1):
-                            F_h5py=h5py.File("F_h5py.hdf5",'r')
+                            F_h5py=h5py.File(scratchdir+"/F_h5py_"+ts+".hdf5",'r')
                             F1=F_h5py["F_h5py"][:,grid_batch_disk[c2]:grid_batch_disk[c2+1]]
                             if mp.optimization=="Cython":
                                 Jint+=fft_cython.sumtrans(gbsd,gbsd_in,gbsd_in,ngs,F1,F_in[:,grid_batch_disk[c1]:grid_batch_disk[c1+1]])
@@ -439,7 +447,7 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                             F1=None
                             F_h5py.close()
                         elif (grid_batch_num==1 and grid_batch_num_in>1):
-                            F_in_h5py=h5py.File("F_in_h5py.hdf5",'r')
+                            F_in_h5py=h5py.File(scratchdir+"/F_in_h5py_"+ts+".hdf5",'r')
                             F2=F_in_h5py["F_in_h5py"][:,grid_batch_disk[c1]:grid_batch_disk[c1+1]]
                             if mp.optimization=="Cython":
                                 Jint+=fft_cython.sumtrans(gbsd,gbsd_in,ngs,gbsd,F[:,grid_batch_disk[c2]:grid_batch_disk[c2+1]],F2)
@@ -461,7 +469,7 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                     else:
                         t1=time.time() #TIMING
                         if grid_batch_num>1:
-                            F_h5py=h5py.File("F_h5py.hdf5",'r')
+                            F_h5py=h5py.File(scratchdir+"/F_h5py_"+ts+".hdf5",'r')
                             F1=F_h5py["F_h5py"][:,grid_batch_disk[c1]:grid_batch_disk[c1+1]]
                             if mp.optimization=="Cython":
                                 Jint+=fft_cython.sumtrans(gbsd,gbsd,gbsd,gbsd,F1,F1)
@@ -483,7 +491,7 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
             else:
                 t1=time.time() #TIMING
                 if grid_batch_num>1:
-                    F_h5py=h5py.File("F_h5py.hdf5",'r')
+                    F_h5py=h5py.File(scratchdir+"/F_h5py_"+ts+".hdf5",'r')
                     for b1 in range(grid_batch_num):
                         gbs=grid_batch[b1+1]-grid_batch[b1]
                         F1=F_h5py["F_h5py"][grid_batch[b1]:grid_batch[b1+1]]
