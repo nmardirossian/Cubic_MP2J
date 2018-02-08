@@ -188,6 +188,27 @@ def get_batch(mem_avail,size,num_mat=1,override=0):
 
     return (max_batch_size,batch_num,batch)
 
+def get_batch_new(mem_avail,size,num_mat=1,num_mat_batch=1):
+
+    mem_avail=float(mem_avail)
+
+    max_batch_size=int(numpy.floor((mem_avail*(10.**6.)/8.)/(num_mat*size)))
+    max_batch_size=numpy.amin(numpy.array([size,max_batch_size]))
+    batch_num=int(numpy.ceil(float(size)/float(max_batch_size)))
+
+    if batch_num>1:
+        max_batch_size=int(numpy.floor((mem_avail*(10.**6.)/8.)/(num_mat_batch*size)))
+        max_batch_size=numpy.amin(numpy.array([size,max_batch_size]))
+        batch_num=int(numpy.ceil(float(size)/float(max_batch_size)))
+
+    batch=(0,)
+    ind=0
+    while ind<size:
+        batch+=(numpy.amin(numpy.array([ind+max_batch_size,size])),)
+        ind+=max_batch_size
+
+    return (max_batch_size,batch_num,batch)
+
 def get_ao_batch(shell_data,max_mo_batch_size):
 
     #shell_data contains the shell indices (i.e., for s,p,s,p functions it will be [0,1,4,5,8])
@@ -240,11 +261,11 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
     (tauarray,weightarray,NLapPoints)=get_LT_data()
 
     #batching
-    (max_grid_batch_size_disk,grid_batch_num_disk,grid_batch_disk)=get_batch(mp.max_disk,ngs,num_mat=3,override=0) #batching grid (disk)
-    (max_mo_occ_batch_size,mo_occ_batch_num,mo_occ_batch)=get_batch(mp.max_memory,nocc,num_mat=2,override=0) #batching occ MOs
-    (max_mo_virt_batch_size,mo_virt_batch_num,mo_virt_batch)=get_batch(mp.max_memory,nvirt,num_mat=2,override=0) #batching virt MOs
+    (max_grid_batch_size_disk,grid_batch_num_disk,grid_batch_disk)=get_batch_new(mp.max_disk,ngs,num_mat=2,num_mat_batch=3) #batching grid (disk)
+    (max_mo_occ_batch_size,mo_occ_batch_num,mo_occ_batch)=get_batch_new(mp.max_memory,nocc,num_mat=2,num_mat_batch=2) #batching occ MOs
+    (max_mo_virt_batch_size,mo_virt_batch_num,mo_virt_batch)=get_batch_new(mp.max_memory,nvirt,num_mat=2,num_mat_batch=2) #batching virt MOs
 
-    (max_ao_batch_size,_,_)=get_batch(mp.max_memory,nao,num_mat=2,override=0) #batching AOs
+    (max_ao_batch_size,_,_)=get_batch_new(mp.max_memory,nao,num_mat=2,num_mat_batch=2) #batching AOs
     (shell_occ_batch,ao_occ_batch)=get_ao_batch(cell.ao_loc_nr(),max_ao_batch_size) #batching "occ" AOs
     (shell_virt_batch,ao_virt_batch)=get_ao_batch(cell.ao_loc_nr(),max_ao_batch_size) #batching "virt" AOs
 
@@ -269,7 +290,7 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
         mo_virt=mo_coeff[:,nocc:]*numpy.exp(mo_energy[:,nocc:]*tauarray[i]/2.) #[nao x nvirt]
         for c1 in range(grid_batch_num_disk):
             gbsd=grid_batch_disk[c1+1]-grid_batch_disk[c1]
-            (max_grid_batch_size,grid_batch_num,grid_batch)=get_batch(mp.max_memory,gbsd,num_mat=3,override=0) #batching grid (mem)
+            (max_grid_batch_size,grid_batch_num,grid_batch)=get_batch_new(mp.max_memory,gbsd,num_mat=2,num_mat_batch=3) #batching grid (mem)
             grid_batch_orig=grid_batch
             grid_batch=tuple(numpy.array(list(grid_batch))+grid_batch_disk[c1])
             if grid_batch_num>1:
@@ -348,7 +369,7 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                 for c2 in range(grid_batch_num_disk):
                     if c2!=c1:
                         gbsd_in=grid_batch_disk[c2+1]-grid_batch_disk[c2]
-                        (max_grid_batch_size_in,grid_batch_num_in,grid_batch_in)=get_batch(mp.max_memory,gbsd_in,num_mat=3,override=0) #batching grid (mem)
+                        (max_grid_batch_size_in,grid_batch_num_in,grid_batch_in)=get_batch_new(mp.max_memory,gbsd_in,num_mat=2,num_mat_batch=3) #batching grid (mem)
                         grid_batch_orig_in=grid_batch_in
                         grid_batch_in=tuple(numpy.array(list(grid_batch_in))+grid_batch_disk[c2])
                         if grid_batch_num_in>1:
