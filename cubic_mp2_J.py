@@ -209,6 +209,27 @@ def get_batch_new(mem_avail,size,num_mat=1,num_mat_batch=1):
 
     return (max_batch_size,batch_num,batch)
 
+def get_batch_final(mem_avail,dim1,dim2,num_mat=1,num_mat_batch=1):
+
+    mem_avail=float(mem_avail)
+
+    max_batch_size=int(numpy.floor((mem_avail*(10.**6.)/8.)/(num_mat*dim2)))
+    max_batch_size=numpy.amin(numpy.array([dim1,max_batch_size]))
+    batch_num=int(numpy.ceil(float(dim1)/float(max_batch_size)))
+
+    if batch_num>1:
+        max_batch_size=int(numpy.floor((mem_avail*(10.**6.)/8.)/(num_mat_batch*dim2)))
+        max_batch_size=numpy.amin(numpy.array([dim1,max_batch_size]))
+        batch_num=int(numpy.ceil(float(dim1)/float(max_batch_size)))
+
+    batch=(0,)
+    ind=0
+    while ind<dim1:
+        batch+=(numpy.amin(numpy.array([ind+max_batch_size,dim1])),)
+        ind+=max_batch_size
+
+    return (max_batch_size,batch_num,batch)
+
 def get_ao_batch(shell_data,max_mo_batch_size):
 
     #shell_data contains the shell indices (i.e., for s,p,s,p functions it will be [0,1,4,5,8])
@@ -261,16 +282,26 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
     (tauarray,weightarray,NLapPoints)=get_LT_data()
 
     #batching
-    (max_grid_batch_size_disk,grid_batch_num_disk,grid_batch_disk)=get_batch_new(mp.max_disk,ngs,num_mat=2,num_mat_batch=3) #batching grid (disk)
-    (max_mo_occ_batch_size,mo_occ_batch_num,mo_occ_batch)=get_batch_new(mp.max_memory,nocc,num_mat=2,num_mat_batch=2) #batching occ MOs
-    (max_mo_virt_batch_size,mo_virt_batch_num,mo_virt_batch)=get_batch_new(mp.max_memory,nvirt,num_mat=2,num_mat_batch=2) #batching virt MOs
+    if mp.max_memory>=mp.max_disk:
+        (max_grid_batch_size_disk,grid_batch_num_disk,grid_batch_disk)=get_batch_final(mp.max_memory,ngs,ngs,num_mat=2,num_mat_batch=3) #batching grid (mem)
+        print "[USING MEMORY ONLY]"
+        storage="mem"
+        if grid_batch_num_disk>1:
+            print "Splitting the grid into ", grid_batch_num_disk, " outer batches of max size (mem) ", max_grid_batch_size_disk
+    else:
+        (max_grid_batch_size_disk,grid_batch_num_disk,grid_batch_disk)=get_batch_final(mp.max_disk,ngs,ngs,num_mat=1,num_mat_batch=2) #batching grid (disk)
+        print "[USING DISK WITH MEMORY SUPPORT]"
+        storage="disk"
+        if grid_batch_num_disk>1:
+            print "Splitting the grid into ", grid_batch_num_disk, " outer batches of max size (disk) ", max_grid_batch_size_disk
 
-    (max_ao_batch_size,_,_)=get_batch_new(mp.max_memory,nao,num_mat=2,num_mat_batch=2) #batching AOs
+    (max_mo_occ_batch_size,mo_occ_batch_num,mo_occ_batch)=get_batch_final(mp.max_memory,nocc,ngs,num_mat=2,num_mat_batch=2) #batching occ MOs
+    (max_mo_virt_batch_size,mo_virt_batch_num,mo_virt_batch)=get_batch_final(mp.max_memory,nvirt,ngs,num_mat=2,num_mat_batch=2) #batching virt MOs
+
+    (max_ao_batch_size,_,_)=get_batch_final(mp.max_memory,nao,ngs,num_mat=2,num_mat_batch=2) #batching AOs
     (shell_occ_batch,ao_occ_batch)=get_ao_batch(cell.ao_loc_nr(),max_ao_batch_size) #batching "occ" AOs
     (shell_virt_batch,ao_virt_batch)=get_ao_batch(cell.ao_loc_nr(),max_ao_batch_size) #batching "virt" AOs
 
-    if grid_batch_num_disk>1:
-        print "Splitting the grid into ", grid_batch_num_disk, " batches of max size (disk) ", max_grid_batch_size_disk
     if mo_occ_batch_num>1:
         print "Splitting the occupied MOs into ", mo_occ_batch_num, " batches of max size ", max_mo_occ_batch_size
     if mo_virt_batch_num>1:
@@ -289,15 +320,22 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
         mo_occ=mo_coeff[:,:nocc]*numpy.exp(-mo_energy[:,:nocc]*tauarray[i]/2.) #[nao x nocc]
         mo_virt=mo_coeff[:,nocc:]*numpy.exp(mo_energy[:,nocc:]*tauarray[i]/2.) #[nao x nvirt]
         for c1 in range(grid_batch_num_disk):
+            print "**********OUTER DISK/MEM BATCH**********"
             gbsd=grid_batch_disk[c1+1]-grid_batch_disk[c1]
-            (max_grid_batch_size,grid_batch_num,grid_batch)=get_batch_new(mp.max_memory,gbsd,num_mat=2,num_mat_batch=3) #batching grid (mem)
+            if storage=="mem":
+                (max_grid_batch_size,grid_batch_num,grid_batch)=get_batch_final(mp.max_memory,gbsd,ngs,num_mat=1,num_mat_batch=1) #batching grid (mem)
+            elif storage=="disk":
+                (max_grid_batch_size,grid_batch_num,grid_batch)=get_batch_final(mp.max_memory,gbsd,ngs,num_mat=2,num_mat_batch=2) #batching grid (mem)
+            else:
+                raise RuntimeError('Invalid option for storage!')
             grid_batch_orig=grid_batch
             grid_batch=tuple(numpy.array(list(grid_batch))+grid_batch_disk[c1])
             if grid_batch_num>1:
                 F_h5py=h5py.File(scratchdir+"/F_h5py_"+ts+".hdf5","w")
                 F_h5py_mat=F_h5py.create_dataset("F_h5py",(gbsd,ngs),dtype='float64')
-                print "Splitting the grid into ", grid_batch_num, " batches of max size (mem) ", max_grid_batch_size
+                print "Splitting the grid into ", grid_batch_num, " inner batches of max size (mem) ", max_grid_batch_size
             for b1 in range(grid_batch_num):
+                print "**********OUTER MEM BATCH**********"
                 t1=time.time() #TIMING
                 eval_ao_time=0.0 #TIMING
                 pylib_dot_time=0.0 #TIMING
@@ -367,16 +405,23 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                 F_h5py_mat=None
             if grid_batch_num_disk>1:
                 for c2 in range(grid_batch_num_disk):
+                    print "**********INNER DISK/MEM BATCH**********"
                     if c2!=c1:
                         gbsd_in=grid_batch_disk[c2+1]-grid_batch_disk[c2]
-                        (max_grid_batch_size_in,grid_batch_num_in,grid_batch_in)=get_batch_new(mp.max_memory,gbsd_in,num_mat=2,num_mat_batch=3) #batching grid (mem)
+                        if storage=="mem":
+                            (max_grid_batch_size_in,grid_batch_num_in,grid_batch_in)=get_batch_final(mp.max_memory,gbsd_in,ngs,num_mat=1,num_mat_batch=1) #batching grid (mem)
+                        elif storage=="disk":
+                            (max_grid_batch_size_in,grid_batch_num_in,grid_batch_in)=get_batch_final(mp.max_memory,gbsd_in,ngs,num_mat=2,num_mat_batch=2) #batching grid (mem)
+                        else:
+                            raise RuntimeError('Invalid option for storage!')
                         grid_batch_orig_in=grid_batch_in
                         grid_batch_in=tuple(numpy.array(list(grid_batch_in))+grid_batch_disk[c2])
                         if grid_batch_num_in>1:
                             F_in_h5py=h5py.File(scratchdir+"/F_in_h5py_"+ts+".hdf5","w")
                             F_in_h5py_mat=F_in_h5py.create_dataset("F_in_h5py",(gbsd_in,ngs),dtype='float64')
-                            print "Splitting the grid into ", grid_batch_num_in, " batches of max size (mem) ", max_grid_batch_size_in
+                            print "Splitting the grid into ", grid_batch_num_in, " inner batches of max size (mem) ", max_grid_batch_size_in
                         for b2 in range(grid_batch_num_in):
+                            print "**********INNER MEM BATCH**********"
                             t1=time.time() #TIMING
                             eval_ao_time=0.0 #TIMING
                             pylib_dot_time=0.0 #TIMING
