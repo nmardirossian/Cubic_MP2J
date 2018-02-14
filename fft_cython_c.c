@@ -44,6 +44,23 @@ void getJ_c(long int batch, double* F, double* coulGsmall, long int* mesh, long 
     return;
 }
 
+double sum_c(long int dim1, long int dim2, long int p1, long int p2, double* F1, double* F2){
+
+    long int j, l;
+    double sum=0.0;
+
+    #pragma omp parallel for reduction (+:sum)
+    for (j=0; j<dim1; ++j){
+        double insum=0.0;
+        for (l=0; l<dim2; ++l){
+            insum=insum+F1[j*p1+l]*F2[j*p2+l];
+        }
+        sum=sum+insum;
+    }
+
+    return sum;
+}
+
 double sumtrans_c(long int dim1, long int dim2, long int p1, long int p2, double* F1, double* F2){
 
     long int j, l;
@@ -64,16 +81,27 @@ double sumtrans_c(long int dim1, long int dim2, long int p1, long int p2, double
 void mult_c(long int dim1, long int dim2, double* F1, double* F2){
 
     long int j, l;
-    double *mat1;
-    double *mat2;
 
-    #pragma omp parallel private(mat1,mat2,j,l)
+    #pragma omp parallel private(j,l)
     #pragma omp for
     for (j=0; j<dim1; ++j){
-        double *mat1=(double*) &F1[j*dim2];
-        double *mat2=(double*) &F2[j*dim2];
         for (l=0; l<dim2; ++l){
-            mat1[l]=mat1[l]*mat2[l];
+            F1[j*dim2+l]=F1[j*dim2+l]*F2[j*dim2+l];
+        }
+    }
+
+    return;
+}
+
+void trans_c(long int dim1, long int dim2, long int ngs, double* F1, double* F2){
+
+    long int j, l;
+
+    #pragma omp parallel private(j,l)
+    #pragma omp for
+    for (j=0; j<dim1; ++j){
+        for (l=0; l<dim2; ++l){
+            F2[l*dim1+j]=F1[j*ngs+l];
         }
     }
 

@@ -172,56 +172,20 @@ def get_LT_data():
 
     return (tauarray,weightarray,NLapPoints)
 
-def get_batch(mem_avail,size,num_mat=1,override=0):
+def get_batch_final(mem_avail,dim1,dim2,num_mat=1,num_mat_batch=1,override=0):
 
-    mem_avail=float(mem_avail)
-    max_batch_size=int(numpy.floor((mem_avail*(10.**6.)/8.)/(num_mat*size)))
-    max_batch_size=numpy.amin(numpy.array([size,max_batch_size]))
     if override>0:
-        max_batch_size=numpy.amin(numpy.array([size,override]))
-    batch_num=int(numpy.ceil(float(size)/float(max_batch_size)))
-    batch=(0,)
-    ind=0
-    while ind<size:
-        batch+=(numpy.amin(numpy.array([ind+max_batch_size,size])),)
-        ind+=max_batch_size
-
-    return (max_batch_size,batch_num,batch)
-
-def get_batch_new(mem_avail,size,num_mat=1,num_mat_batch=1):
-
-    mem_avail=float(mem_avail)
-
-    max_batch_size=int(numpy.floor((mem_avail*(10.**6.)/8.)/(num_mat*size)))
-    max_batch_size=numpy.amin(numpy.array([size,max_batch_size]))
-    batch_num=int(numpy.ceil(float(size)/float(max_batch_size)))
-
-    if batch_num>1:
-        max_batch_size=int(numpy.floor((mem_avail*(10.**6.)/8.)/(num_mat_batch*size)))
-        max_batch_size=numpy.amin(numpy.array([size,max_batch_size]))
-        batch_num=int(numpy.ceil(float(size)/float(max_batch_size)))
-
-    batch=(0,)
-    ind=0
-    while ind<size:
-        batch+=(numpy.amin(numpy.array([ind+max_batch_size,size])),)
-        ind+=max_batch_size
-
-    return (max_batch_size,batch_num,batch)
-
-def get_batch_final(mem_avail,dim1,dim2,num_mat=1,num_mat_batch=1):
-
-    mem_avail=float(mem_avail)
-
-    max_batch_size=int(numpy.floor((mem_avail*(10.**6.)/8.)/(num_mat*dim2)))
-    max_batch_size=numpy.amin(numpy.array([dim1,max_batch_size]))
-    batch_num=int(numpy.ceil(float(dim1)/float(max_batch_size)))
-
-    if batch_num>1:
-        max_batch_size=int(numpy.floor((mem_avail*(10.**6.)/8.)/(num_mat_batch*dim2)))
+        max_batch_size=numpy.amin(numpy.array([dim1,override]))
+        batch_num=int(numpy.ceil(float(dim1)/float(max_batch_size)))
+    else:
+        mem_avail=float(mem_avail)
+        max_batch_size=int(numpy.floor((mem_avail*(10.**6.)/8.)/(num_mat*dim2)))
         max_batch_size=numpy.amin(numpy.array([dim1,max_batch_size]))
         batch_num=int(numpy.ceil(float(dim1)/float(max_batch_size)))
-
+        if batch_num>1:
+            max_batch_size=int(numpy.floor((mem_avail*(10.**6.)/8.)/(num_mat_batch*dim2)))
+            max_batch_size=numpy.amin(numpy.array([dim1,max_batch_size]))
+            batch_num=int(numpy.ceil(float(dim1)/float(max_batch_size)))
     batch=(0,)
     ind=0
     while ind<dim1:
@@ -257,56 +221,63 @@ def compute_fft(inp,coulG,mesh,smallmesh):
 
 def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
 
+    #gaussian basis data
     nao=mp.nmo
     nocc=mp.nocc
     nvirt=nao-nocc
-    ngs=mp.ngs
     if mo_energy is None: mo_energy=mp.mo_energy #[nmo]
     if mo_coeff is None: mo_coeff=mp.mo_coeff #[nao x nmo]
     mo_energy=mo_energy.reshape(1,-1)
 
+    #plane wave basis data
+    ngs=mp.ngs
     cell=mp._scf.cell
     mesh=cell.mesh
     smallmesh=mesh.copy()
     smallmesh[-1]=int(numpy.floor(smallmesh[-1]/2.0))+1
-
+    coords=cell.gen_uniform_grids(mesh=mesh) #[ngs x 3]
     print "mesh: ", mesh
     print "smallmesh: ", smallmesh
 
+    #v(G)
     coulG=pbctools.get_coulG(cell,mesh=mesh) #[ngs]
     coulG=coulG.reshape(mesh) #[mesh[0] x mesh[1] x mesh[2]]
     coulG=coulG[:,:,:smallmesh[-1]].reshape([numpy.product(smallmesh),]) #[ngssmall]
 
-    coords=cell.gen_uniform_grids(mesh=mesh) #[ngs x 3]
-
+    #laplace transform data
+    #TODO: allow this function to take number of laplace points as argument and actually fit the MO energies
     (tauarray,weightarray,NLapPoints)=get_LT_data()
 
-    #batching
-    if mp.max_memory>=mp.max_disk:
-        (max_grid_batch_size_disk,grid_batch_num_disk,grid_batch_disk)=get_batch_final(mp.max_memory,ngs,ngs,num_mat=2,num_mat_batch=3) #batching grid (mem)
+    #batching grid
+    #first, we check to see if we should do everything in memory.
+    #it is done in memory if:
+        #a). mp.max_memory is large enough to hold ngs x ngs x 2 doubles, regardless of the value of mp.max_disk
+        #b). mp.max_memory>=mp.max_disk, which means to trigger the version that uses no disking, set mp.max_disk equal to mp.max_memory
+    (max_grid_batch_size_disk,grid_batch_num_disk,grid_batch_disk)=get_batch_final(mp.max_memory,ngs,ngs,num_mat=2,num_mat_batch=3,override=0) #batching grid (mem)
+    if (grid_batch_num_disk==1 or mp.max_memory>=mp.max_disk):
         print "[USING MEMORY ONLY]"
         storage="mem"
         if grid_batch_num_disk>1:
             print "Splitting the grid into ", grid_batch_num_disk, " outer batches of max size (mem) ", max_grid_batch_size_disk
     else:
-        (max_grid_batch_size_disk,grid_batch_num_disk,grid_batch_disk)=get_batch_final(mp.max_disk,ngs,ngs,num_mat=1,num_mat_batch=2) #batching grid (disk)
+        (max_grid_batch_size_disk,grid_batch_num_disk,grid_batch_disk)=get_batch_final(mp.max_disk,ngs,ngs,num_mat=2,num_mat_batch=2,override=0) #batching grid (disk)
         print "[USING DISK WITH MEMORY SUPPORT]"
         storage="disk"
         if grid_batch_num_disk>1:
             print "Splitting the grid into ", grid_batch_num_disk, " outer batches of max size (disk) ", max_grid_batch_size_disk
 
-    (max_mo_occ_batch_size,mo_occ_batch_num,mo_occ_batch)=get_batch_final(mp.max_memory,nocc,ngs,num_mat=2,num_mat_batch=2) #batching occ MOs
-    (max_mo_virt_batch_size,mo_virt_batch_num,mo_virt_batch)=get_batch_final(mp.max_memory,nvirt,ngs,num_mat=2,num_mat_batch=2) #batching virt MOs
-
-    (max_ao_batch_size,_,_)=get_batch_final(mp.max_memory,nao,ngs,num_mat=2,num_mat_batch=2) #batching AOs
+    #batching orbitals
+    (max_mo_occ_batch_size,mo_occ_batch_num,mo_occ_batch)=get_batch_final(mp.max_memory,nocc,ngs,num_mat=2,num_mat_batch=2,override=0) #batching occ MOs
+    (max_mo_virt_batch_size,mo_virt_batch_num,mo_virt_batch)=get_batch_final(mp.max_memory,nvirt,ngs,num_mat=2,num_mat_batch=2,override=0) #batching virt MOs
+    (max_ao_batch_size,_,_)=get_batch_final(mp.max_memory,nao,ngs,num_mat=2,num_mat_batch=2,override=0) #batching AOs
     (shell_occ_batch,ao_occ_batch)=get_ao_batch(cell.ao_loc_nr(),max_ao_batch_size) #batching "occ" AOs
     (shell_virt_batch,ao_virt_batch)=get_ao_batch(cell.ao_loc_nr(),max_ao_batch_size) #batching "virt" AOs
-
     if mo_occ_batch_num>1:
         print "Splitting the occupied MOs into ", mo_occ_batch_num, " batches of max size ", max_mo_occ_batch_size
     if mo_virt_batch_num>1:
         print "Splitting the virtual MOs into ", mo_virt_batch_num, " batches of max size ", max_mo_virt_batch_size
 
+    #scratch directory and files
     try:
         scratchdir=os.environ['PYSCF_TMPDIR']
     except KeyError:
@@ -323,20 +294,34 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
             print "**********OUTER DISK/MEM BATCH**********"
             gbsd=grid_batch_disk[c1+1]-grid_batch_disk[c1]
             if storage=="mem":
-                (max_grid_batch_size,grid_batch_num,grid_batch)=get_batch_final(mp.max_memory,gbsd,ngs,num_mat=1,num_mat_batch=1) #batching grid (mem)
+                (max_grid_batch_size,grid_batch_num,grid_batch)=get_batch_final(mp.max_memory,gbsd,ngs,num_mat=1,num_mat_batch=1,override=0) #batching grid (mem)
             elif storage=="disk":
-                (max_grid_batch_size,grid_batch_num,grid_batch)=get_batch_final(mp.max_memory,gbsd,ngs,num_mat=2,num_mat_batch=2) #batching grid (mem)
+                (max_grid_batch_size,grid_batch_num,grid_batch)=get_batch_final(mp.max_memory,gbsd,ngs,num_mat=2,num_mat_batch=2,override=0) #batching grid (mem)
             else:
                 raise RuntimeError('Invalid option for storage!')
-            grid_batch_orig=grid_batch
-            grid_batch=tuple(numpy.array(list(grid_batch))+grid_batch_disk[c1])
+            grid_batch=tuple(numpy.array(grid_batch)+grid_batch_disk[c1])
             if grid_batch_num>1:
                 F_h5py=h5py.File(scratchdir+"/F_h5py_"+ts+".hdf5","w")
-                F_h5py_mat=F_h5py.create_dataset("F_h5py",(gbsd,ngs),dtype='float64')
+                F_T_h5py=h5py.File(scratchdir+"/F_T_h5py_"+ts+".hdf5","w")
+                if c1==0:
+                    disk_batch=list(grid_batch)
+                    while disk_batch[-1]<ngs:
+                        tmp=list(numpy.array(disk_batch)+disk_batch[-1])
+                        disk_batch=disk_batch+tmp[1:]
+                    disk_batch=numpy.array(disk_batch)
+                    disk_batch=disk_batch[disk_batch<ngs]
+                    disk_batch=tuple(list(disk_batch)+[ngs])
+                    disk_batch_num=len(disk_batch)-1
+                    offsave=grid_batch_num
+                for b1 in range(grid_batch_num):
+                    gbs=grid_batch[b1+1]-grid_batch[b1]
+                    for b2 in range(disk_batch_num):
+                        dbs=disk_batch[b2+1]-disk_batch[b2]
+                        F_h5py.create_dataset("F_h5py_"+str(b1)+"_"+str(b2),(gbs,dbs),dtype='float64')
+                        F_T_h5py.create_dataset("F_T_h5py_"+str(b2)+"_"+str(b1),(dbs,gbs),dtype='float64')
                 print "Splitting the grid into ", grid_batch_num, " inner batches of max size (mem) ", max_grid_batch_size
             for b1 in range(grid_batch_num):
                 print "**********OUTER MEM BATCH**********"
-                t1=time.time() #TIMING
                 eval_ao_time=0.0 #TIMING
                 pylib_dot_time=0.0 #TIMING
                 gbs=grid_batch[b1+1]-grid_batch[b1]
@@ -374,8 +359,8 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                     pylib.dot(moR_b[grid_batch[b1]:grid_batch[b1+1]],moR_b.T,alpha=1,c=F,beta=1) #[gbs x ngs]
                     pylib_dot_time+=time.time()-t2 #TIMING
                     moR_b=None
-                print "eval ao took: ", eval_ao_time #TIMING
-                print "pylib took: ", pylib_dot_time #TIMING
+                print "eval_ao took: ", eval_ao_time #TIMING
+                print "pylib_dot took: ", pylib_dot_time #TIMING
                 t2=time.time() #TIMING
                 if mp.optimization=="Cython":
                     fft_cython.mult(gbs,ngs,F,g_o)
@@ -385,7 +370,6 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                     raise RuntimeError('Only Cython and Python implemented!')
                 print "F*g_o took: ", time.time()-t2 #TIMING
                 g_o=None
-                print "Green's function formation took: ", time.time()-t1 #TIMING
                 t1=time.time() #TIMING
                 if mp.optimization=="Cython":
                     fft_cython.getJ(gbs,F,coulG,mesh,smallmesh)
@@ -396,36 +380,51 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                     raise RuntimeError('Only Cython and Python implemented!')
                 print "FFT took: ", time.time()-t1 #TIMING
                 if grid_batch_num>1:
-                    t1=time.time() #TIMING
-                    F_h5py_mat[grid_batch_orig[b1]:grid_batch_orig[b1+1]]=F
+                    F_write_time=0.0 #TIMING
+                    F_transpose_time=0.0 #TIMING
+                    F_T_write_time=0.0 #TIMING
+                    for b2 in range(disk_batch_num):
+                        dbs=disk_batch[b2+1]-disk_batch[b2]
+                        t1=time.time() #TIMING
+                        F_h5py["F_h5py_"+str(b1)+"_"+str(b2)][:]=F[:,disk_batch[b2]:disk_batch[b2+1]]
+                        F_write_time+=time.time()-t1 #TIMING
+                        t1=time.time() #TIMING
+                        if mp.optimization=="Cython":
+                            F_T=numpy.zeros((dbs,gbs),dtype='float64')
+                            fft_cython.trans(gbs,dbs,ngs,F[:,disk_batch[b2]:disk_batch[b2+1]],F_T)
+                        elif mp.optimization=="Python":
+                            F_T=F[:,disk_batch[b2]:disk_batch[b2+1]].T
+                        else:
+                            raise RuntimeError('Only Cython and Python implemented!')
+                        F_transpose_time+=time.time()-t1 #TIMING
+                        t1=time.time() #TIMING
+                        F_T_h5py["F_T_h5py_"+str(b2)+"_"+str(b1)][:]=F_T
+                        F_T_write_time+=time.time()-t1 #TIMING
+                        F_T=None
                     F=None
-                    print "Writing F to disk took: ", time.time()-t1 #TIMING
+                    print "Writing F to disk took: ", F_write_time #TIMING
+                    print "Transposing F took: ", F_transpose_time #TIMING
+                    print "Writing F_T to disk took: ", F_T_write_time #TIMING
             if grid_batch_num>1:
                 F_h5py.close()
-                F_h5py_mat=None
+                F_T_h5py.close()
             if grid_batch_num_disk>1:
                 for c2 in range(grid_batch_num_disk):
                     print "**********INNER DISK/MEM BATCH**********"
                     if c2!=c1:
                         gbsd_in=grid_batch_disk[c2+1]-grid_batch_disk[c2]
                         if storage=="mem":
-                            (max_grid_batch_size_in,grid_batch_num_in,grid_batch_in)=get_batch_final(mp.max_memory,gbsd_in,ngs,num_mat=1,num_mat_batch=1) #batching grid (mem)
+                            (max_grid_batch_size_in,grid_batch_num_in,grid_batch_in)=get_batch_final(mp.max_memory,gbsd_in,ngs,num_mat=1,num_mat_batch=1,override=0) #batching grid (mem)
                         elif storage=="disk":
-                            (max_grid_batch_size_in,grid_batch_num_in,grid_batch_in)=get_batch_final(mp.max_memory,gbsd_in,ngs,num_mat=2,num_mat_batch=2) #batching grid (mem)
+                            (max_grid_batch_size_in,grid_batch_num_in,grid_batch_in)=get_batch_final(mp.max_memory,gbsd_in,ngs,num_mat=2,num_mat_batch=2,override=0) #batching grid (mem)
                         else:
                             raise RuntimeError('Invalid option for storage!')
-                        grid_batch_orig_in=grid_batch_in
-                        grid_batch_in=tuple(numpy.array(list(grid_batch_in))+grid_batch_disk[c2])
-                        if grid_batch_num_in>1:
-                            F_in_h5py=h5py.File(scratchdir+"/F_in_h5py_"+ts+".hdf5","w")
-                            F_in_h5py_mat=F_in_h5py.create_dataset("F_in_h5py",(gbsd_in,ngs),dtype='float64')
-                            print "Splitting the grid into ", grid_batch_num_in, " inner batches of max size (mem) ", max_grid_batch_size_in
-                        for b2 in range(grid_batch_num_in):
+                        grid_batch_in=tuple(numpy.array(grid_batch_in)+grid_batch_disk[c2])
+                        for b1 in range(grid_batch_num_in):
                             print "**********INNER MEM BATCH**********"
-                            t1=time.time() #TIMING
                             eval_ao_time=0.0 #TIMING
                             pylib_dot_time=0.0 #TIMING
-                            gbs_in=grid_batch_in[b2+1]-grid_batch_in[b2]
+                            gbs_in=grid_batch_in[b1+1]-grid_batch_in[b1]
                             g_o=numpy.zeros((gbs_in,ngs),dtype='float64') #[gbs_in x ngs]
                             for a1 in range(mo_occ_batch_num):
                                 mbs=mo_occ_batch[a1+1]-mo_occ_batch[a1]
@@ -440,7 +439,7 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                                     pylib_dot_time+=time.time()-t2 #TIMING
                                 aoR_b=mo_occ_b=None
                                 t2=time.time() #TIMING
-                                pylib.dot(moR_b[grid_batch_in[b2]:grid_batch_in[b2+1]],moR_b.T,alpha=1,c=g_o,beta=1) #[gbs_in x ngs]
+                                pylib.dot(moR_b[grid_batch_in[b1]:grid_batch_in[b1+1]],moR_b.T,alpha=1,c=g_o,beta=1) #[gbs_in x ngs]
                                 pylib_dot_time+=time.time()-t2 #TIMING
                                 moR_b=None
                             F_in=numpy.zeros((gbs_in,ngs),dtype='float64') #[gbs_in x ngs]
@@ -457,11 +456,11 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                                     pylib_dot_time+=time.time()-t2 #TIMING
                                 aoR_b=mo_virt_b=None
                                 t2=time.time() #TIMING
-                                pylib.dot(moR_b[grid_batch_in[b2]:grid_batch_in[b2+1]],moR_b.T,alpha=1,c=F_in,beta=1) #[gbs_in x ngs]
+                                pylib.dot(moR_b[grid_batch_in[b1]:grid_batch_in[b1+1]],moR_b.T,alpha=1,c=F_in,beta=1) #[gbs_in x ngs]
                                 pylib_dot_time+=time.time()-t2 #TIMING
                                 moR_b=None
-                            print "eval ao took: ", eval_ao_time #TIMING
-                            print "pylib took: ", pylib_dot_time #TIMING
+                            print "eval_ao took: ", eval_ao_time #TIMING
+                            print "pylib_dot took: ", pylib_dot_time #TIMING
                             t2=time.time() #TIMING
                             if mp.optimization=="Cython":
                                 fft_cython.mult(gbs_in,ngs,F_in,g_o)
@@ -471,7 +470,6 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                                 raise RuntimeError('Only Cython and Python implemented!')
                             print "F_in*g_o took: ", time.time()-t2 #TIMING
                             g_o=None
-                            print "Green's function formation took: ", time.time()-t1 #TIMING
                             t1=time.time() #TIMING
                             if mp.optimization=="Cython":
                                 fft_cython.getJ(gbs_in,F_in,coulG,mesh,smallmesh)
@@ -481,122 +479,120 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                             else:
                                 raise RuntimeError('Only Cython and Python implemented!')
                             print "FFT took: ", time.time()-t1 #TIMING
-                            if grid_batch_num_in>1:
+                            if grid_batch_num>1:
+                                F_T_read_time=0.0 #TIMING
+                                sum_time=0.0 #TIMING
+                                F_T_h5py=h5py.File(scratchdir+"/F_T_h5py_"+ts+".hdf5",'r')
+                                for b2 in range(grid_batch_num):
+                                    gbs=grid_batch[b2+1]-grid_batch[b2]
+                                    t1=time.time() #TIMING
+                                    F1=F_T_h5py["F_T_h5py_"+str(b1+offsave*c2)+"_"+str(b2)][:]
+                                    F_T_read_time+=time.time()-t1 #TIMING
+                                    t1=time.time() #TIMING
+                                    if mp.optimization=="Cython":
+                                        Jint+=fft_cython.sum(gbs_in,gbs,gbs,ngs,F1,F_in[:,grid_batch[b2]:grid_batch[b2+1]])
+                                    elif mp.optimization=="Python":
+                                        Jint+=numpy.einsum('ij,ij->',F1,F_in[:,grid_batch[b2]:grid_batch[b2+1]])
+                                    else:
+                                        raise RuntimeError('Only Cython and Python implemented!')
+                                    sum_time+=time.time()-t1 #TIMING
+                                print "Reading F_T from disk took: ", F_T_read_time #TIMING
+                                print "Summing took: ", sum_time #TIMING
+                                F_T_h5py.close()
+                            else:
                                 t1=time.time() #TIMING
-                                F_in_h5py_mat[grid_batch_orig_in[b2]:grid_batch_orig_in[b2+1]]=F_in
-                                F_in=None
-                                print "Writing F_in to disk took: ", time.time()-t1 #TIMING
-                        if grid_batch_num_in>1:
-                            F_in_h5py.close()
-                            F_in_h5py_mat=None
-                        t1=time.time() #TIMING
-                        if (grid_batch_num>1 and grid_batch_num_in>1):
-                            t2=time.time() #TIMING
-                            F_h5py=h5py.File(scratchdir+"/F_h5py_"+ts+".hdf5",'r')
-                            F_in_h5py=h5py.File(scratchdir+"/F_in_h5py_"+ts+".hdf5",'r')
-                            F1=F_h5py["F_h5py"][:,grid_batch_disk[c2]:grid_batch_disk[c2+1]]
-                            F2=F_in_h5py["F_in_h5py"][:,grid_batch_disk[c1]:grid_batch_disk[c1+1]]
-                            print "Reading F and F_in from disk took: ", time.time()-t2 #TIMING
-                            if mp.optimization=="Cython":
-                                Jint+=fft_cython.sumtrans(gbsd,gbsd_in,gbsd_in,gbsd,F1,F2)
-                            elif mp.optimization=="Python":
-                                Jint+=numpy.einsum('ij,ji->',F1,F2)
-                            else:
-                                raise RuntimeError('Only Cython and Python implemented!')
-                            F1=None
-                            F2=None
-                            F_h5py.close()
-                            F_in_h5py.close()
-                        elif (grid_batch_num>1 and grid_batch_num_in==1):
-                            t2=time.time() #TIMING
-                            F_h5py=h5py.File(scratchdir+"/F_h5py_"+ts+".hdf5",'r')
-                            F1=F_h5py["F_h5py"][:,grid_batch_disk[c2]:grid_batch_disk[c2+1]]
-                            print "Reading F from disk took: ", time.time()-t2 #TIMING
-                            if mp.optimization=="Cython":
-                                Jint+=fft_cython.sumtrans(gbsd,gbsd_in,gbsd_in,ngs,F1,F_in[:,grid_batch_disk[c1]:grid_batch_disk[c1+1]])
-                            elif mp.optimization=="Python":
-                                Jint+=numpy.einsum('ij,ji->',F1,F_in[:,grid_batch_disk[c1]:grid_batch_disk[c1+1]])
-                            else:
-                                raise RuntimeError('Only Cython and Python implemented!')
-                            F1=None
-                            F_h5py.close()
-                        elif (grid_batch_num==1 and grid_batch_num_in>1):
-                            t2=time.time() #TIMING
-                            F_in_h5py=h5py.File(scratchdir+"/F_in_h5py_"+ts+".hdf5",'r')
-                            F2=F_in_h5py["F_in_h5py"][:,grid_batch_disk[c1]:grid_batch_disk[c1+1]]
-                            print "Reading F_in from disk took: ", time.time()-t2 #TIMING
-                            if mp.optimization=="Cython":
-                                Jint+=fft_cython.sumtrans(gbsd,gbsd_in,ngs,gbsd,F[:,grid_batch_disk[c2]:grid_batch_disk[c2+1]],F2)
-                            elif mp.optimization=="Python":
-                                Jint+=numpy.einsum('ij,ji->',F[:,grid_batch_disk[c2]:grid_batch_disk[c2+1]],F2)
-                            else:
-                                raise RuntimeError('Only Cython and Python implemented!')
-                            F2=None
-                            F_in_h5py.close()
-                        else:
-                            if mp.optimization=="Cython":
-                                Jint+=fft_cython.sumtrans(gbsd,gbsd_in,ngs,ngs,F[:,grid_batch_disk[c2]:grid_batch_disk[c2+1]],F_in[:,grid_batch_disk[c1]:grid_batch_disk[c1+1]])
-                            elif mp.optimization=="Python":
-                                Jint+=numpy.einsum('ij,ji->',F[:,grid_batch_disk[c2]:grid_batch_disk[c2+1]],F_in[:,grid_batch_disk[c1]:grid_batch_disk[c1+1]])
-                            else:
-                                raise RuntimeError('Only Cython and Python implemented!')
+                                if mp.optimization=="Cython":
+                                    Jint+=fft_cython.sumtrans(gbsd,gbs_in,ngs,ngs,F[:,grid_batch_in[b1]:grid_batch_in[b1+1]],F_in[:,grid_batch_disk[c1]:grid_batch_disk[c1+1]])
+                                elif mp.optimization=="Python":
+                                    Jint+=numpy.einsum('ij,ji->',F[:,grid_batch_in[b1]:grid_batch_in[b1+1]],F_in[:,grid_batch_disk[c1]:grid_batch_disk[c1+1]])
+                                else:
+                                    raise RuntimeError('Only Cython and Python implemented!')
+                                print "Summing took: ", time.time()-t1 #TIMING
                             F_in=None
-                        print "Summing took: ", time.time()-t1 #TIMING
                     else:
-                        t1=time.time() #TIMING
                         if grid_batch_num>1:
-                            t2=time.time() #TIMING
                             F_h5py=h5py.File(scratchdir+"/F_h5py_"+ts+".hdf5",'r')
-                            F1=F_h5py["F_h5py"][:,grid_batch_disk[c1]:grid_batch_disk[c1+1]]
-                            print "Reading F from disk took: ", time.time()-t2 #TIMING
-                            if mp.optimization=="Cython":
-                                Jint+=fft_cython.sumtrans(gbsd,gbsd,gbsd,gbsd,F1,F1)
-                            elif mp.optimization=="Python":
-                                Jint+=numpy.einsum('ij,ji->',F1,F1)
-                            else:
-                                raise RuntimeError('Only Cython and Python implemented!')
-                            F1=None
+                            F_T_h5py=h5py.File(scratchdir+"/F_T_h5py_"+ts+".hdf5",'r')
+                            F_read_time=0.0 #TIMING
+                            F_T_read_time=0.0 #TIMING
+                            sum_time=0.0 #TIMING
+                            for b1 in range(grid_batch_num):
+                                gbs=grid_batch[b1+1]-grid_batch[b1]
+                                for b2 in range(grid_batch_num):
+                                    gbs_in=grid_batch[b2+1]-grid_batch[b2]
+                                    t1=time.time() #TIMING
+                                    F1=F_h5py["F_h5py_"+str(b1)+"_"+str(b2+offsave*c1)][:]
+                                    F_read_time+=time.time()-t1 #TIMING
+                                    t1=time.time() #TIMING
+                                    F2=F_T_h5py["F_T_h5py_"+str(b1+offsave*c1)+"_"+str(b2)][:]
+                                    F_T_read_time+=time.time()-t1 #TIMING
+                                    t1=time.time() #TIMING
+                                    if mp.optimization=="Cython":
+                                        Jint+=fft_cython.sum(gbs,gbs_in,gbs_in,gbs_in,F1,F2)
+                                    elif mp.optimization=="Python":
+                                        Jint+=numpy.einsum('ij,ij->',F1,F2)
+                                    else:
+                                        raise RuntimeError('Only Cython and Python implemented!')
+                                    sum_time+=time.time()-t1 #TIMING
+                                    F2=None
+                                F1=None
+                            print "Reading F took: ", F_read_time #TIMING
+                            print "Reading F_T took: ", F_T_read_time #TIMING
+                            print "Summing took: ", sum_time #TIMING
                             F_h5py.close()
+                            F_T_h5py.close()
                         else:
+                            t1=time.time() #TIMING
                             if mp.optimization=="Cython":
                                 Jint+=fft_cython.sumtrans(gbsd,gbsd,ngs,ngs,F[:,grid_batch_disk[c1]:grid_batch_disk[c1+1]],F[:,grid_batch_disk[c1]:grid_batch_disk[c1+1]])
                             elif mp.optimization=="Python":
                                 Jint+=numpy.einsum('ij,ji->',F[:,grid_batch_disk[c1]:grid_batch_disk[c1+1]],F[:,grid_batch_disk[c1]:grid_batch_disk[c1+1]])
                             else:
                                 raise RuntimeError('Only Cython and Python implemented!')
-                        print "Summing took: ", time.time()-t1 #TIMING
+                            print "Summing took: ", time.time()-t1 #TIMING
                 F=None
             else:
-                t1=time.time() #TIMING
                 if grid_batch_num>1:
                     F_h5py=h5py.File(scratchdir+"/F_h5py_"+ts+".hdf5",'r')
+                    F_T_h5py=h5py.File(scratchdir+"/F_T_h5py_"+ts+".hdf5",'r')
+                    F_read_time=0.0 #TIMING
+                    F_T_read_time=0.0 #TIMING
+                    sum_time=0.0 #TIMING
                     for b1 in range(grid_batch_num):
                         gbs=grid_batch[b1+1]-grid_batch[b1]
-                        t2=time.time() #TIMING
-                        F1=F_h5py["F_h5py"][grid_batch[b1]:grid_batch[b1+1]]
-                        print "Reading F1 from disk took: ", time.time()-t2 #TIMING
-                        t2=time.time() #TIMING
-                        F2=F_h5py["F_h5py"][:,grid_batch[b1]:grid_batch[b1+1]]
-                        print "Reading F2 from disk took: ", time.time()-t2 #TIMING
-                        if mp.optimization=="Cython":
-                            Jint+=fft_cython.sumtrans(gbs,ngs,ngs,gbs,F1,F2)
-                        elif mp.optimization=="Python":
-                            Jint+=numpy.einsum('ij,ji->',F1,F2)
-                        else:
-                            raise RuntimeError('Only Cython and Python implemented!')
+                        for b2 in range(disk_batch_num):
+                            dbs=disk_batch[b2+1]-disk_batch[b2]
+                            t1=time.time() #TIMING
+                            F1=F_h5py["F_h5py_"+str(b1)+"_"+str(b2)][:]
+                            F_read_time+=time.time()-t1 #TIMING
+                            t1=time.time() #TIMING
+                            F2=F_T_h5py["F_T_h5py_"+str(b1)+"_"+str(b2)][:]
+                            F_T_read_time+=time.time()-t1 #TIMING
+                            t1=time.time() #TIMING
+                            if mp.optimization=="Cython":
+                                Jint+=fft_cython.sum(gbs,dbs,dbs,dbs,F1,F2)
+                            elif mp.optimization=="Python":
+                                Jint+=numpy.einsum('ij,ij->',F1,F2)
+                            else:
+                                raise RuntimeError('Only Cython and Python implemented!')
+                            sum_time+=time.time()-t1 #TIMING
+                            F2=None
                         F1=None
-                        F2=None
+                    print "Reading F took: ", F_read_time #TIMING
+                    print "Reading F_T took: ", F_T_read_time #TIMING
+                    print "Summing took: ", sum_time #TIMING
                     F_h5py.close()
+                    F_T_h5py.close()
                 else:
+                    t1=time.time() #TIMING
                     if mp.optimization=="Cython":
                         Jint+=fft_cython.sumtrans(ngs,ngs,ngs,ngs,F,F)
                     elif mp.optimization=="Python":
                         Jint+=numpy.einsum('ij,ji->',F,F)
                     else:
                         raise RuntimeError('Only Cython and Python implemented!')
+                    print "Summing took: ", time.time()-t1 #TIMING
                     F=None
-                print "Summing took: ", time.time()-t1 #TIMING
-        moRoccW=moRvirtW=None
         EMP2J-=2.*weightarray[i]*Jint*(cell.vol/ngs)**2.
     EMP2J=EMP2J.real
 
