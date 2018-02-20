@@ -249,6 +249,8 @@ def form_g(mp,mo,row,row_batch):
 
     #forms the occupied/virtual Green's function (either g_o or g_v)
 
+    print "**********form_g**********"
+
     cell=mp._scf.cell
     coords=cell.gen_uniform_grids(mesh=cell.mesh) #[ngs x 3]
     nocc=mp.nocc
@@ -262,15 +264,23 @@ def form_g(mp,mo,row,row_batch):
     rbs=row_batch[row+1]-row_batch[row]
     g=numpy.zeros((rbs,mp.ngs),dtype='float64') #[rbs x ngs]
 
+    eval_ao_time=0.0 #TIMING
+    pylib_dot_time=0.0 #TIMING
     for a1 in range(mo_batch_num):
         mbs=mo_batch[a1+1]-mo_batch[a1]
         moR_b=numpy.zeros((mp.ngs,mbs),dtype='float64') #[ngs x mbs]
         for a2 in range(len(shell_batch)-1):
+            t=time.time() #TIMING
             aoR_b=numint.eval_ao(cell,coords,shls_slice=(shell_batch[a2],shell_batch[a2+1])) #[ngs x shell_batch_size]
+            eval_ao_time+=time.time()-t #TIMING
             mo_b=mo[ao_batch[a2]:ao_batch[a2+1],mo_batch[a1]:mo_batch[a1+1]] #[shell_batch_size x mbs]
+            t=time.time() #TIMING
             pylib.dot(aoR_b,mo_b,alpha=1,c=moR_b,beta=1) #[ngs x mbs]
+            pylib_dot_time+=time.time()-t #TIMING
             aoR_b=mo_b=None
+        t=time.time() #TIMING
         pylib.dot(moR_b[row_batch[row]:row_batch[row+1]],moR_b.T,alpha=1,c=g,beta=1) #[rbs x ngs]
+        pylib_dot_time+=time.time()-t #TIMING
         moR_b=None
 
     coords=None
@@ -283,6 +293,9 @@ def form_g(mp,mo,row,row_batch):
     if mo_batch_num>1:
         print "Splitting the "+mo_str+" MOs into ", mo_batch_num, " batches of max size ", max_mo_batch_size
 
+    print "eval_ao_time took: ", eval_ao_time #TIMING
+    print "pylib_dot took: ", pylib_dot_time #TIMING
+
     return g
 
 def form_F(dim1,dim2,mat_out,mat_in):
@@ -290,12 +303,16 @@ def form_F(dim1,dim2,mat_out,mat_in):
     #forms the product of the occupied and virtual Green's functions, f=g_o*g_v
     #multiplies two matrices, mat_out and mat_in, storing the result in mat_out
 
+    print "**********form_F**********"
+
+    t=time.time() #TIMING
     if OPTIMIZATION_TYPE=="Cython":
         fft_cython.mult(dim1,dim2,mat_out,mat_in)
     elif OPTIMIZATION_TYPE=="Python":
         mat_out*=mat_in #[gbs x ngs]
     else:
         raise RuntimeError('Only Cython and Python implemented!')
+    print "form_F took: ", time.time()-t #TIMING
 
     return mat_out
 
@@ -303,6 +320,9 @@ def fft_F(batch,F,coulG,mesh,smallmesh):
 
     #form the final F
 
+    print "**********fft_F**********"
+
+    t=time.time() #TIMING
     if OPTIMIZATION_TYPE=="Cython":
         fft_cython.getJ(batch,F,coulG,mesh,smallmesh)
     elif OPTIMIZATION_TYPE=="Python":
@@ -310,6 +330,7 @@ def fft_F(batch,F,coulG,mesh,smallmesh):
             F[j]=python_fft(F[j],coulG,mesh,smallmesh)
     else:
         raise RuntimeError('Only Cython and Python implemented!')
+    print "fft_F took: ", time.time()-t #TIMING
 
     return F
 
@@ -334,6 +355,8 @@ def init_h5py(row_batch,column_batch,F_h5py,F_T_h5py):
 
     #initialize the h5py files
 
+    print "**********init_h5py**********"
+
     row_batch_num=len(row_batch)-1
     column_batch_num=len(column_batch)-1
 
@@ -353,24 +376,41 @@ def write_h5py(row,rbs,ngs,column_batch,F_h5py,F_T_h5py,F):
     #F (ngs x ngs) has been chopped up row-wise, and we are getting the 'row'th rbs x ngs piece
     #this function breaks the incoming rbs x ngs piece into smaller rbs x cbs pieces and saves them
 
+    print "**********write_h5py**********"
+
     column_batch_num=len(column_batch)-1
 
+    F_write_time=0.0 #TIMING
+    F_T_time=0.0 #TIMING
+    F_T_write_time=0.0 #TIMING
     for i in range(column_batch_num):
         cbs=column_batch[i+1]-column_batch[i]
+        t=time.time() #TIMING
         F_h5py["F_h5py_"+str(row)+"_"+str(i)][:]=F[:,column_batch[i]:column_batch[i+1]]
+        F_write_time+=time.time()-t #TIMING
+        t=time.time() #TIMING
         if OPTIMIZATION_TYPE=="Cython":
             F_T=numpy.zeros((cbs,rbs),dtype='float64')
-            fft_cython.trans(rbs,cbs,ngs,F[:,column_batch[i]:column_batch[i+1]],F_T)
+            fft_cython.trans(rbs,cbs,ngs,F_T,F[:,column_batch[i]:column_batch[i+1]])
         elif OPTIMIZATION_TYPE=="Python":
             F_T=F[:,column_batch[i]:column_batch[i+1]].T
         else:
             raise RuntimeError('Only Cython and Python implemented!')
+        F_T_time+=time.time()-t #TIMING
+        t=time.time() #TIMING
         F_T_h5py["F_T_h5py_"+str(i)+"_"+str(row)][:]=F_T
+        F_T_write_time+=time.time()-t #TIMING
         F_T=None
+
+    print "F_write took: ", F_write_time #TIMING
+    print "F_T took: ", F_T_time #TIMING
+    print "F_T_write took: ", F_T_write_time #TIMING
 
     return None
 
 def read_h5py_sum(row_batch,column_batch,col_off,ts,scratch):
+
+    print "**********read_h5py_sum**********"
 
     sum=0.0
 
@@ -380,25 +420,40 @@ def read_h5py_sum(row_batch,column_batch,col_off,ts,scratch):
     F_h5py=h5py.File(scratch+"/F_h5py_"+ts+".hdf5",'r')
     F_T_h5py=h5py.File(scratch+"/F_T_h5py_"+ts+".hdf5",'r')
 
+    F1_read_time=0.0 #TIMING
+    F2_read_time=0.0 #TIMING
+    sum_time=0.0 #TIMING
     for b1 in range(row_batch_num):
         rbs=row_batch[b1+1]-row_batch[b1]
         for b2 in range(column_batch_num):
             cbs=column_batch[b2+1]-column_batch[b2]
+            t=time.time() #TIMING
             F1=F_h5py["F_h5py_"+str(b1)+"_"+str(b2+col_off)][:]
+            F1_read_time+=time.time()-t #TIMING
+            t=time.time() #TIMING
             F2=F_T_h5py["F_T_h5py_"+str(b1+col_off)+"_"+str(b2)][:]
+            F2_read_time+=time.time()-t #TIMING
+            t=time.time() #TIMING
             if OPTIMIZATION_TYPE=="Cython":
                 sum+=fft_cython.sum(rbs,cbs,cbs,cbs,F1,F2)
             elif OPTIMIZATION_TYPE=="Python":
                 sum+=numpy.einsum('ij,ij->',F1,F2)
             else:
                 raise RuntimeError('Only Cython and Python implemented!')
+            sum_time+=time.time()-t #TIMING
             F1=F2=None
     F_h5py.close()
     F_T_h5py.close()
 
+    print "F1_read took: ", F1_read_time #TIMING
+    print "F2_read took: ", F2_read_time #TIMING
+    print "sum took: ", sum_time #TIMING
+
     return sum
 
 def read_h5py_T_sum(F1,row,rbs,ngs,column_batch,col_off,ts,scratch):
+
+    print "**********read_h5py_T_sum**********"
 
     sum=0.0
 
@@ -406,30 +461,43 @@ def read_h5py_T_sum(F1,row,rbs,ngs,column_batch,col_off,ts,scratch):
 
     F_T_h5py=h5py.File(scratch+"/F_T_h5py_"+ts+".hdf5",'r')
 
+    F2_read_time=0.0 #TIMING
+    sum_time=0.0 #TIMING
     for b2 in range(column_batch_num):
         cbs=column_batch[b2+1]-column_batch[b2]
+        t=time.time() #TIMING
         F2=F_T_h5py["F_T_h5py_"+str(row+col_off)+"_"+str(b2)][:]
+        F2_read_time+=time.time()-t #TIMING
+        t=time.time() #TIMING
         if OPTIMIZATION_TYPE=="Cython":
-            sum+=fft_cython.sum(rbs,cbs,cbs,ngs,F2,F1[:,column_batch[b2]:column_batch[b2+1]])
+            sum+=fft_cython.sum(rbs,cbs,ngs,cbs,F1[:,column_batch[b2]:column_batch[b2+1]],F2)
         elif OPTIMIZATION_TYPE=="Python":
-            sum+=numpy.einsum('ij,ij->',F2,F1[:,column_batch[b2]:column_batch[b2+1]])
+            sum+=numpy.einsum('ij,ij->',F1[:,column_batch[b2]:column_batch[b2+1]],F2)
         else:
             raise RuntimeError('Only Cython and Python implemented!')
+        sum_time+=time.time()-t #TIMING
         F2=None
     F_T_h5py.close()
+
+    print "F2_read took: ", F2_read_time #TIMING
+    print "sum took: ", sum_time #TIMING
 
     return sum
 
 def sum_trans(dim1,dim2,p1,p2,A,B):
 
+    print "**********sum_trans**********"
+
     sum=0.0
 
+    t=time.time() #TIMING
     if OPTIMIZATION_TYPE=="Cython":
         sum=fft_cython.sumtrans(dim1,dim2,p1,p2,A,B)
     elif OPTIMIZATION_TYPE=="Python":
         sum=numpy.einsum('ij,ji->',A,B)
     else:
         raise RuntimeError('Only Cython and Python implemented!')
+    print "sum_trans took: ", time.time()-t #TIMING
 
     return sum
 
@@ -491,7 +559,7 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
         #outer loop over disk/mem
         for c1 in range(grid_batch_num_disk):
 
-            print "**********OUTER DISK/MEM BATCH**********"
+            print "********************OUTER DISK/MEM BATCH********************"
 
             #batching outer loop over mem
             gbsd=grid_batch_disk[c1+1]-grid_batch_disk[c1]
@@ -516,7 +584,7 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
             #outer loop over mem
             for gb in range(grid_batch_num):
 
-                print "**********OUTER MEM BATCH**********"
+                print "********************OUTER MEM BATCH********************"
 
                 gbs=grid_batch[gb+1]-grid_batch[gb]
                 g_o=form_g(mp,mo_occ,gb,grid_batch)
@@ -540,7 +608,7 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                 #inner loop over disk/mem
                 for c2 in range(grid_batch_num_disk):
 
-                    print "**********INNER DISK/MEM BATCH**********"
+                    print "********************INNER DISK/MEM BATCH********************"
 
                     if c2!=c1:
 
@@ -557,7 +625,7 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                         #inner loop over mem
                         for gb in range(grid_batch_num_in):
 
-                            print "**********INNER MEM BATCH**********"
+                            print "********************INNER MEM BATCH********************"
 
                             gbs_in=grid_batch_in[gb+1]-grid_batch_in[gb]
                             g_o=form_g(mp,mo_occ,gb,grid_batch_in)
@@ -566,7 +634,7 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                             g_o=None
                             F_in=fft_F(gbs_in,F_in,coulG,mesh,smallmesh)
 
-                            #inner sum
+                            #inner sum if c1!=c2
                             if grid_batch_num>1:
                                 J_LT+=read_h5py_T_sum(F_in,gb,gbs_in,ngs,grid_batch,offset*c2,ts,scratchdir)
                             else:

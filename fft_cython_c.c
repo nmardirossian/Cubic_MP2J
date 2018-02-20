@@ -46,6 +46,9 @@ void getJ_c(long int batch, double* F, double* coulGsmall, long int* mesh, long 
 
 double sum_c(long int dim1, long int dim2, long int p1, long int p2, double* F1, double* F2){
 
+    //given two dim1 x dim2 matrices F1 and F2, returns sum of F1*F2
+    //F1 and F2 are usually chunks from a dim1 x ngs matrix, hence the extra pointers
+
     long int j, l;
     double sum=0.0;
 
@@ -62,6 +65,9 @@ double sum_c(long int dim1, long int dim2, long int p1, long int p2, double* F1,
 }
 
 double sumtrans_c(long int dim1, long int dim2, long int p1, long int p2, double* F1, double* F2){
+
+    //given a dim1 x dim2 matrix F1, and a dim2 x dim1 matrix F2, returns sum of F1*F2.T
+    //F1 and F2 are usually chunks from a dim1/dim2 x ngs matrix, hence the extra pointers
 
     long int j, l;
     double sum=0.0;
@@ -80,6 +86,8 @@ double sumtrans_c(long int dim1, long int dim2, long int p1, long int p2, double
 
 void mult_c(long int dim1, long int dim2, double* F1, double* F2){
 
+    //takes 2 dim1 x dim2 matrices (F1 and F2) and returns the Hadamard product in F1
+
     long int j, l;
 
     #pragma omp parallel private(j,l)
@@ -93,7 +101,10 @@ void mult_c(long int dim1, long int dim2, double* F1, double* F2){
     return;
 }
 
-void trans_c(long int dim1, long int dim2, long int ngs, double* F1, double* F2){
+void trans_c(long int dim1, long int dim2, long int p, double* F1, double* F2){
+
+    //takes a dim1 x dim2 matrix (F2) and stores its dim2 x dim1 transpose in F1
+    //the matrix being transposed (F2) is a chunk of a larger dim1 x p matrix, hence the extra pointer
 
     long int j, l;
 
@@ -101,7 +112,7 @@ void trans_c(long int dim1, long int dim2, long int ngs, double* F1, double* F2)
     #pragma omp for
     for (j=0; j<dim1; ++j){
         for (l=0; l<dim2; ++l){
-            F2[l*dim1+j]=F1[j*ngs+l];
+            F1[l*dim1+j]=F2[j*p+l];
         }
     }
 
