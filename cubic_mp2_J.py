@@ -566,7 +566,7 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
             if storage=="mem":
                 (max_grid_batch_size,grid_batch_num,grid_batch)=get_batch(mp.max_memory,gbsd,ngs,num_mat=1,num_mat_batch=1,override=0) #batching grid (mem)
             elif storage=="disk":
-                (max_grid_batch_size,grid_batch_num,grid_batch)=get_batch(mp.max_memory,gbsd,ngs,num_mat=2,num_mat_batch=2,override=0) #batching grid (mem)
+                (max_grid_batch_size,grid_batch_num,grid_batch)=get_batch(mp.max_memory,gbsd,ngs,num_mat=3,num_mat_batch=3,override=0) #batching grid (mem)
             else:
                 raise RuntimeError('Invalid option for storage!')
             grid_batch=tuple(numpy.array(grid_batch)+grid_batch_disk[c1])
@@ -617,7 +617,7 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                         if storage=="mem":
                             (max_grid_batch_size_in,grid_batch_num_in,grid_batch_in)=get_batch(mp.max_memory,gbsd_in,ngs,num_mat=1,num_mat_batch=1,override=0) #batching grid (mem)
                         elif storage=="disk":
-                            (max_grid_batch_size_in,grid_batch_num_in,grid_batch_in)=get_batch(mp.max_memory,gbsd_in,ngs,num_mat=2,num_mat_batch=2,override=0) #batching grid (mem)
+                            (max_grid_batch_size_in,grid_batch_num_in,grid_batch_in)=get_batch(mp.max_memory,gbsd_in,ngs,num_mat=3,num_mat_batch=3,override=0) #batching grid (mem)
                         else:
                             raise RuntimeError('Invalid option for storage!')
                         grid_batch_in=tuple(numpy.array(grid_batch_in)+grid_batch_disk[c2])
