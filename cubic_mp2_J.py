@@ -293,7 +293,7 @@ def form_g(mp,mo,row,row_batch):
     if mo_batch_num>1:
         print "Splitting the "+mo_str+" MOs into ", mo_batch_num, " batches of max size ", max_mo_batch_size
 
-    print "eval_ao_time took: ", eval_ao_time #TIMING
+    print "eval_ao took: ", eval_ao_time #TIMING
     print "pylib_dot took: ", pylib_dot_time #TIMING
 
     return g
