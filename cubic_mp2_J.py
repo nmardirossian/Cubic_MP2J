@@ -18,7 +18,12 @@ import pyscf.pbc.tools.pyscf_ase as pyscf_ase
 from pyscf.pbc.dft.gen_grid import gen_uniform_grids
 pyfftw.interfaces.cache.enable()
 
-OPTIMIZATION_TYPE="Cython"
+try:
+    OPTIMIZATION_TYPE=str(sys.argv[4])
+except IndexError:
+    OPTIMIZATION_TYPE="Cython"
+else:
+    pass
 
 def get_cell(lc_bohr,atom,unit_cell,basis,mesh,pseudo,supercell=None):
 
@@ -95,7 +100,6 @@ class LTSOSMP2(pylib.StreamObject):
         self.stdout=self.mol.stdout
         self.max_memory=scf.max_memory
         self.max_disk=scf.max_memory
-        self.optimization='Cython'
         self.lt_points=7
 
 ##################################################
@@ -234,14 +238,21 @@ def get_disk_batch(grid_batch,ngs):
 
     return (disk_batch,disk_batch_num)
 
-def python_fft(input,coulG,mesh,smallmesh):
+def python_fft(inp,coulG,mesh):
 
     #for a row of f=g_o*g_v, compute F
 
-    func=input.copy()
-    func=pyfftw.interfaces.numpy_fft.rfftn(func.reshape(mesh),mesh,planner_effort='FFTW_MEASURE')
-    func*=coulG.reshape(smallmesh)
-    func=pyfftw.interfaces.numpy_fft.irfftn(func,mesh,planner_effort='FFTW_MEASURE').flatten()
+    func=inp.copy()
+    if [x%2 for x in list(mesh)]==[1]*len(list(mesh)):
+        smallmesh=mesh.copy()
+        smallmesh[-1]=int(numpy.floor(smallmesh[-1]/2.0))+1
+        func=pyfftw.interfaces.numpy_fft.rfftn(func.reshape(mesh),mesh,planner_effort='FFTW_MEASURE')
+        func*=coulG.reshape(mesh)[:,:,:smallmesh[-1]]
+        func=pyfftw.interfaces.numpy_fft.irfftn(func,mesh,planner_effort='FFTW_MEASURE').flatten()
+    else:
+        func=pyfftw.interfaces.numpy_fft.fftn(func.reshape(mesh),mesh,planner_effort='FFTW_MEASURE')
+        func*=coulG.reshape(mesh)
+        func=pyfftw.interfaces.numpy_fft.ifftn(func,mesh,planner_effort='FFTW_MEASURE').flatten().real
 
     return func
 
@@ -316,7 +327,7 @@ def form_F(dim1,dim2,mat_out,mat_in):
 
     return mat_out
 
-def fft_F(batch,F,coulG,mesh,smallmesh):
+def fft_F(batch,F,coulG,mesh):
 
     #form the final F
 
@@ -324,10 +335,18 @@ def fft_F(batch,F,coulG,mesh,smallmesh):
 
     t=time.time() #TIMING
     if OPTIMIZATION_TYPE=="Cython":
-        fft_cython.getJ(batch,F,coulG,mesh,smallmesh)
+        if [x%2 for x in list(mesh)]==[1]*len(list(mesh)):
+            smallmesh=mesh.copy()
+            smallmesh[-1]=int(numpy.floor(smallmesh[-1]/2.0))+1
+            coulG=coulG.reshape(mesh)[:,:,:smallmesh[-1]].reshape([numpy.product(smallmesh),])
+            fft_cython.fftreal(batch,F,coulG,mesh,smallmesh)
+        else:
+            F=F.astype(dtype='complex128',order='C')
+            fft_cython.fftcomp(batch,F,coulG,mesh)
+            F=F.real.copy()
     elif OPTIMIZATION_TYPE=="Python":
         for j in range(batch):
-            F[j]=python_fft(F[j],coulG,mesh,smallmesh)
+            F[j]=python_fft(F[j],coulG,mesh)
     else:
         raise RuntimeError('Only Cython and Python implemented!')
     print "fft_F took: ", time.time()-t #TIMING
@@ -338,18 +357,9 @@ def form_coulG(cell):
 
     #form coulG
 
-    mesh=cell.mesh
-    smallmesh=mesh.copy()
-    smallmesh[-1]=int(numpy.floor(smallmesh[-1]/2.0))+1
+    coulG=pbctools.get_coulG(cell,mesh=cell.mesh) #[ngs]
 
-    coulG=pbctools.get_coulG(cell,mesh=mesh) #[ngs]
-    coulG=coulG.reshape(mesh) #[mesh[0] x mesh[1] x mesh[2]]
-    coulG=coulG[:,:,:smallmesh[-1]].reshape([numpy.product(smallmesh),]) #[ngssmall]
-
-    print "mesh: ", cell.mesh
-    print "smallmesh: ", smallmesh
-
-    return (coulG,mesh,smallmesh)
+    return coulG
 
 def init_h5py(row_batch,column_batch,F_h5py,F_T_h5py):
 
@@ -513,7 +523,8 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
     #plane wave basis data
     ngs=mp.ngs
     cell=mp._scf.cell
-    (coulG,mesh,smallmesh)=form_coulG(cell)
+    mesh=cell.mesh
+    coulG=form_coulG(cell)
 
     #laplace transform data
     #TODO: allow this function to take number of laplace points as argument and actually fit the MO energies
@@ -591,7 +602,7 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                 F=form_g(mp,mo_virt,gb,grid_batch)
                 F=form_F(gbs,ngs,F,g_o)
                 g_o=None
-                F=fft_F(gbs,F,coulG,mesh,smallmesh)
+                F=fft_F(gbs,F,coulG,mesh)
 
                 #write to h5py files if disking
                 if grid_batch_num>1:
@@ -632,7 +643,7 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
                             F_in=form_g(mp,mo_virt,gb,grid_batch_in)
                             F_in=form_F(gbs_in,ngs,F_in,g_o)
                             g_o=None
-                            F_in=fft_F(gbs_in,F_in,coulG,mesh,smallmesh)
+                            F_in=fft_F(gbs_in,F_in,coulG,mesh)
 
                             #inner sum if c1!=c2
                             if grid_batch_num>1:
@@ -660,7 +671,6 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
 
         E_MP2_J-=2.*weightarray[i]*J_LT*(cell.vol/ngs)**2.
         mo_occ=mo_virt=None
-    E_MP2_J=E_MP2_J.real
 
     return E_MP2_J
 
@@ -670,7 +680,6 @@ max_disk=int(sys.argv[3])
 cell=get_cell(10.26,'Si','diamond','gth-szv',mesh_val,'gth-pade',supercell=[1,1,1])
 scf=get_scf(cell)
 mp2=LTSOSMP2(scf)
-mp2.optimization='Cython'
 mp2.lt_points=1
 t1=time.time()
 mp2.max_memory=max_mem
