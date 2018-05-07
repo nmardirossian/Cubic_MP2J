@@ -361,6 +361,26 @@ def form_coulG(cell):
 
     return coulG
 
+def form_coulG_new(cell,sign='pos'):
+
+    mesh = cell.mesh
+    gx = numpy.fft.fftfreq(mesh[0], 1./mesh[0])
+    gy = numpy.fft.fftfreq(mesh[1], 1./mesh[1])
+    gz = numpy.fft.fftfreq(mesh[2], 1./mesh[2])
+    if sign!='pos':
+        gx[mesh/2]=numpy.abs(gx[mesh/2])
+        gy[mesh/2]=numpy.abs(gy[mesh/2])
+        gz[mesh/2]=numpy.abs(gz[mesh/2])
+    gxyz = pylib.cartesian_prod((gx, gy, gz))
+    b = cell.reciprocal_vectors()
+    Gv = numpy.dot(gxyz, b)
+    absG2 = numpy.sum(Gv*Gv, axis=1)
+    with numpy.errstate(divide='ignore'):
+        coulG = 4.*numpy.pi/absG2
+    coulG[absG2==0] = 0.
+
+    return coulG
+
 def init_h5py(row_batch,column_batch,F_h5py,F_T_h5py):
 
     #initialize the h5py files
@@ -524,7 +544,9 @@ def kernel(mp,mo_energy=None,mo_coeff=None,verbose=logger.NOTE):
     ngs=mp.ngs
     cell=mp._scf.cell
     mesh=cell.mesh
-    coulG=form_coulG(cell)
+    # coulG=form_coulG(cell)
+    coulG=form_coulG_new(cell,sign='pos')
+    coulG=(form_coulG_new(cell,sign='pos')+form_coulG_new(cell,sign='neg'))/2.
 
     #laplace transform data
     #TODO: allow this function to take number of laplace points as argument and actually fit the MO energies
